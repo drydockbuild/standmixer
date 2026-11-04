@@ -30,6 +30,8 @@ final class DriverPermissionsTests: XCTestCase {
             XCTAssertTrue(text.contains("bin/standmixer"))
             XCTAssertFalse(text.contains("bin/AgentMixHelper"))
             XCTAssertTrue(text.contains("install-mac"))
+            XCTAssertTrue(text.contains("update --mac"))
+            XCTAssertTrue(text.contains("never check for"))
             XCTAssertTrue(text.contains("Controller Auto"))
             XCTAssertTrue(text.contains(platform == .codex ? "OPEN THE INTERACTIVE UI" : "open the native StandMixer plugin pane"))
         }

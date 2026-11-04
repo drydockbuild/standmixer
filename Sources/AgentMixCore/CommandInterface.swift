@@ -74,6 +74,7 @@ public enum AgentMixCommandInterface {
       fast | optimized | high  Preview a preset; add --yes to apply it.
       settings               Open settings in the invoking harness.
       install-mac            Build and open the optional Mac app locally.
+      update [--mac]         Update plugins and source; optionally rebuild the Mac app.
       install                Preview installing commands without applying a preset.
       uninstall              Preview restoring your original settings.
       uninstall --yes        Remove StandMixer's integration and restore safely.

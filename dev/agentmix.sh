@@ -9,6 +9,10 @@ ENGINE="$SUPPORT_DIR/runtime/AgentMixHelper"
 VERB=${1:-settings}
 [ "$#" = 0 ] || shift
 case "$VERB" in
+  update)
+    [ -f "$SOURCE_DIR/.agentmix-source" ] && [ ! -L "$SOURCE_DIR" ] && [ ! -L "$SOURCE_DIR/.agentmix-source" ] || { echo 'StandMixer: reinstall from the trusted source checkout before updating.' >&2; exit 1; }
+    exec /bin/sh "$SOURCE_DIR/dev/update.sh" "$@"
+    ;;
   install-mac)
     [ -f "$SOURCE_DIR/.agentmix-source" ] && [ ! -L "$SOURCE_DIR" ] && [ ! -L "$SOURCE_DIR/.agentmix-source" ] || { echo 'StandMixer: reinstall from the trusted source checkout before building the Mac app.' >&2; exit 1; }
     exec /bin/sh "$SOURCE_DIR/dev/install-mac.sh" "$@"

@@ -6,4 +6,5 @@
 - Preserve exact reviewed previews, first-install baselines, later user edits, and safe restore/uninstall. Do not broaden permissions to make tests pass.
 - Discovery stays bounded. Never search personal folders or read raw credentials.
 - Release source and binaries must exclude private paths, prompts, logs, and authentication material. Check the release snapshot before publishing.
+- Preserve published Git history. Add normal commits; do not recut or force-reset public `main`.
 - Per-project and plan-aware routing stay in [ROADMAP.md](ROADMAP.md) unless explicitly requested.

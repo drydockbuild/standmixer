@@ -18,6 +18,8 @@ For an explicit status request, use the bundled helper's `--standmixer status`. 
 
 For an explicit `install-mac` request, run `~/Library/Application Support/AgentMix/bin/standmixer install-mac` with the path quoted. It builds and opens the optional Mac app locally; Apple Command Line Tools with Swift 6 are required. Report progress and failures. It does not apply routing, install developer tools, or change Gatekeeper.
 
+For an explicit `update` request, run `"$HOME/Library/Application Support/AgentMix/bin/standmixer" update`. `update --mac` also rebuilds the optional Mac app. Updates preserve presets and model defaults. Report progress and failures; never check for or run updates unprompted.
+
 Controller Auto preserves the currently selected native model. Ordinary questions and small edits need no extra intake or planning agent. Delegation follows task needs, explicit instructions, and project permissions. CLI-launched workers use their CLI account, which can differ from a desktop login; Sources can check exposed account metadata without reading credentials or changing logins.
 
 The UI and local helper manage only known harness settings. Do not read credentials, search personal folders, or manually reconstruct configuration. If this host cannot show the panel, report that specific limitation rather than claiming the UI opened.

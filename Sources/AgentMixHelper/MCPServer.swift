@@ -28,7 +28,7 @@ final class AgentMixMCPServer: @unchecked Sendable {
         case "initialize":
             result = ["protocolVersion": Self.protocolVersion,
                       "capabilities": ["tools": ["listChanged": false], "resources": ["subscribe": false, "listChanged": false]],
-                      "serverInfo": ["name": "standmixer", "version": "0.1.0", "icons": Self.icons],
+                      "serverInfo": ["name": "standmixer", "version": "0.1.1", "icons": Self.icons],
                       "instructions": "Open StandMixer to review routing. Apply requires a stored reviewed preview ID. Account status and optional local Mac app installation run only from explicit panel actions."]
         case "ping": result = [:]
         case "tools/list": result = ["tools": Self.tools]

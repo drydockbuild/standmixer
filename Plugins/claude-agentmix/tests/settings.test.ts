@@ -5,6 +5,7 @@ import { recipeKey, matchedPreset, modelIdentity, routeKey } from '../hooks/pres
 
 function harness(on, initial = state(), reviewed = preview(), placements = [true], inspectionGate = null, installGate = null, accountResult = null) {
   const calls = []; const registeredCommands = []; const openedURLs = []; let openingURL = 'http://127.0.0.1:54321/#token=' + 'a'.repeat(43);
+  const updateCalls = []; let updateResult = { exitCode: 0, stdout: 'Updated fixture.', stderr: '' };
   let saveFailure = null;
   const saved = new Map();
   let opens = 0;
@@ -19,6 +20,10 @@ function harness(on, initial = state(), reviewed = preview(), placements = [true
   on('ui.close', () => ({ value: undefined }));
   on('ui.toast', () => ({ value: undefined }));
   on('process.run', async ($, e) => {
+    if (e.argv[0] === '/bin/sh' && e.argv[1] === '-c') {
+      expect(e.argv.slice(0,4)).toEqual(['/bin/sh','-c','exec "$HOME/Library/Application Support/AgentMix/bin/standmixer" update "$@"','standmixer-update']);
+      expect(e.init.timeoutMs).toBe(600000);updateCalls.push(e.argv);return { value: updateResult };
+    }
     if (e.argv[0] === '/usr/bin/open') { openedURLs.push(e.argv[1]); return { value: { exitCode: 0, stdout: '', stderr: '' } }; }
     if (e.argv[0] === '/bin/sh') return { value: { exitCode: 0, stdout: '/fixture/AgentMixHelper\n', stderr: '' } };
     expect(e.argv).toEqual(['/fixture/AgentMixHelper']);
@@ -71,8 +76,36 @@ function harness(on, initial = state(), reviewed = preview(), placements = [true
   // A regression that initiates inference or a prompt fails immediately.
   on('model.complete', () => { throw new Error('Unexpected inference'); });
   on('prompt.submit', () => { throw new Error('Unexpected prompt submission'); });
-  return { calls, registeredCommands, openedURLs, setOpeningURL: value => { openingURL = value; }, setSaveFailure: value => { saveFailure = value; }, saved, opens: () => opens, openOptions };
+  return { calls, registeredCommands, openedURLs, updateCalls, setUpdateResult: value => { updateResult = value; }, setOpeningURL: value => { openingURL = value; }, setSaveFailure: value => { saveFailure = value; }, saved, opens: () => opens, openOptions };
 }
+
+test('explicit update uses only the fixed launcher and never opens or applies settings', async ($, on) => {
+  const fixture=harness(on);
+  await $.command.run({command:'standmixer',args:'update'});
+  expect(fixture.updateCalls[0]).toHaveLength(4);
+  expect(fixture.calls).toEqual([]);expect(fixture.opens()).toBe(0);
+  await $.command.run({command:'standmixer',args:'update --mac'});
+  expect(fixture.updateCalls[1].slice(4)).toEqual(['--mac']);
+  expect(fixture.calls).toEqual([]);
+});
+
+test('update rejects extra arguments and preserves an in-progress edit', async ($, on) => {
+  const fixture=harness(on);
+  for(const args of ['update --yes','update --mac extra','update https://example.invalid'])await $.command.run({command:'standmixer',args});
+  expect(fixture.updateCalls).toEqual([]);
+  await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
+  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
+  await $.command.run({command:'standmixer',args:'update'});
+  expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
+  expect(await ui.find({key:'save-edit'})).toBeDefined();expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
+});
+
+test('update surfaces failure instead of claiming success or applying defaults', async ($, on) => {
+  const fixture=harness(on);fixture.setUpdateResult({exitCode:37,stdout:'',stderr:'Network unavailable'});
+  await $.command.run({command:'standmixer',args:'update'});const ui=await $.ui.mount({...pane,surface:'desktop'});
+  expect(await ui.find({type:'Text',text:'StandMixer update did not complete.\nNetwork unavailable'})).toBeDefined();
+  expect(fixture.calls).toEqual([]);expect(fixture.updateCalls).toHaveLength(1);
+});
 
 async function saveAndReview(ui) {
   if (await ui.find({ key: 'save-edit' })) await ui.press({ key: 'save-edit' });

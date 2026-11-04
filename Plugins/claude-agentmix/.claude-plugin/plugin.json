@@ -1,6 +1,6 @@
 {
   "name": "standmixer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Native StandMixer settings for Claude Code and Codex. Choose a preset, review its exact changes, and apply without a model turn.",
   "author": {
     "name": "Drydock Labs"

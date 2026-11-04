@@ -727,10 +727,30 @@ function renderSettings($, event) {
 }
 
 async function runCommand($, event) {
-    // command.run.args is the text after /standmixer. Arguments select a view or
-    // prepare a review; even a legacy --yes never performs a mutation here.
-    const action = (event.args || '').trim().toLowerCase().split(/\s+/)[0];
-    if (action === 'help') return { text: '/standmixer opens settings. Use fast, optimized, or high to preview a preset; uninstall to review removal; restore to review the last backup; web to open in your browser; mac to open the installed Mac app; install-mac to build it locally. Apply changes with the button in the pane.' };
+    // Routing arguments only select a view or prepare review. Software updates
+    // are separate, explicit commands and never apply a routing preset.
+    const words = (event.args || '').trim().toLowerCase().split(/\s+/), action = words[0];
+    if (action === 'update') {
+      if (words.length > 2 || (words.length === 2 && words[1] !== '--mac')) return { text: 'Use /standmixer update, or /standmixer update --mac to also rebuild the Mac app.' };
+      if (view.busy || view.installingMac) return { text: 'Another StandMixer operation is still running. Wait for it to finish before updating.' };
+      const withMac = words[1] === '--mac';
+      view.error = ''; view.message = ''; resetReview();
+      view.busy = withMac ? 'Updating StandMixer and the Mac app…' : 'Updating StandMixer…';
+      $.ui.invalidate('ui.render');
+      try {
+        const result = await $.process.run(['/bin/sh', '-c', 'exec "$HOME/Library/Application Support/AgentMix/bin/standmixer" update "$@"', 'standmixer-update', ...(withMac ? ['--mac'] : [])], { timeoutMs: 600000 });
+        const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+        const message = result.exitCode === 0
+          ? 'StandMixer updated. Presets and model defaults were kept. Run /reload-plugins to load the update.' + (withMac ? ' Reopen the Mac app to use its updated build.' : '')
+          : 'StandMixer update did not complete.\n' + (output.slice(-6000) || 'Check the installed launcher and retry.');
+        if (result.exitCode === 0) view.message = message; else view.error = message;
+        return { text: message };
+      } catch (error) {
+        const message = 'StandMixer update did not complete: ' + (error.message || String(error));
+        view.error = message; return { text: message };
+      } finally { view.busy = ''; $.ui.invalidate('ui.render'); }
+    }
+    if (action === 'help') return { text: '/standmixer opens settings. Use fast, optimized, or high to preview a preset; uninstall to review removal; restore to review the last backup; web to open in your browser; mac to open the installed Mac app; install-mac to build it locally; update to refresh plugins and source, or update --mac to also rebuild the app. Apply changes with the button in the pane.' };
     if (!['', 'status', 'settings', 'fast', 'optimized', 'high', 'uninstall', 'restore', 'install-mac', 'web', 'mac'].includes(action)) {
       return { text: 'Use /standmixer to open settings, or /standmixer help for commands.' };
     }

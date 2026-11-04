@@ -40,7 +40,13 @@ The app builds locally, is ad-hoc signed, and installs in `~/Applications/StandM
 
 ## Update and remove
 
-Run the installer from a fresh checkout:
+Run `/standmixer update` in Claude Code or `$standmixer update` in Codex. Add `--mac` to also rebuild the optional Mac app. In Terminal:
+
+```sh
+"$HOME/Library/Application Support/AgentMix/bin/standmixer" update
+```
+
+Updates are explicit; StandMixer does not poll or update in the background. Older installations without the update command need one installer refresh:
 
 ```sh
 standmixer_update="$(mktemp -d)" && git clone --depth 1 https://github.com/drydockbuild/standmixer.git "$standmixer_update/standmixer" && /bin/sh "$standmixer_update/standmixer/install.sh"
@@ -50,7 +56,7 @@ Updates preserve presets, drafts, backups, and modified or unowned files. New co
 
 `/standmixer uninstall` or **Sources → Remove StandMixer settings** previews restoration of the original managed settings. The Mac app offers **Settings → Uninstall StandMixer**. Later user edits are preserved. Remove the plugin separately in the host's plugin manager; saved presets, recovery data, source, and the optional app remain.
 
-The installer prints the full Terminal command path without changing your shell's PATH. The launcher accepts `status`, `fast`, `optimized`, `high`, and `uninstall`; mutations preview first and require `--yes`.
+The installer prints the full Terminal command path without changing your shell's PATH. The launcher also accepts `status`, `fast`, `optimized`, `high`, and `uninstall`; routing changes preview first and require `--yes`.
 
 ## Local data
 

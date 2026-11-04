@@ -151,7 +151,7 @@ class Installers(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.source = self.root / 'source checkout'
         self.source.mkdir()
-        for file in ['install.sh','dev/install-common.sh','dev/agentmix.sh','dev/install-mac.sh','dev/build.sh','dev/build-paths.sh','dev/build-claude-plugin.sh','dev/build-codex-plugin.sh','dev/install-codex-ui.sh','dev/make-icon.swift','Plugins/claude-agentmix/scripts/bootstrap.sh','Plugins/claude-agentmix/.claude-plugin/marketplace.json','Plugins/codex-agentmix/scripts/mcp.sh']:
+        for file in ['install.sh','dev/install-common.sh','dev/agentmix.sh','dev/update.sh','dev/install-mac.sh','dev/build.sh','dev/build-paths.sh','dev/build-claude-plugin.sh','dev/build-codex-plugin.sh','dev/install-codex-ui.sh','dev/make-icon.swift','Plugins/claude-agentmix/scripts/bootstrap.sh','Plugins/claude-agentmix/.claude-plugin/marketplace.json','Plugins/codex-agentmix/scripts/mcp.sh']:
             dest = self.source / file
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(PROJECT / file, dest)
@@ -199,6 +199,81 @@ class Installers(unittest.TestCase):
         return result
     def install(self, *args): return self.call(self.source/'install.sh','--no-open',*args)
     def calls(self): return [json.loads(x) for x in Path(self.env['FIXTURE_LOG']).read_text().splitlines()]
+
+    def prepare_update(self):
+        official='https://github.com/drydockbuild/standmixer.git'
+        self.git('remote','add','origin',official)
+        self.install()
+        self.env['FIXTURE_UPDATE_SOURCE']=str(self.source)
+        self.env['FIXTURE_REAL_GIT']=shutil.which('git')
+        temporary=self.root/'update scratch'; temporary.mkdir(); self.env['TMPDIR']=str(temporary)
+        wrapper=self.bin/'git'
+        wrapper.write_text('#!'+sys.executable+'\n'+r'''
+import os,sys,subprocess,pathlib,json
+args=sys.argv[1:];real=os.environ['FIXTURE_REAL_GIT'];official='https://github.com/drydockbuild/standmixer.git'
+if 'clone' in args and official in args:
+    with open(os.environ['FIXTURE_LOG'],'a') as f:f.write(json.dumps(['git-update-clone',official])+'\n')
+    if os.environ.get('FIXTURE_UPDATE_CLONE_FAIL'):sys.exit(37)
+    args[args.index(official)]=pathlib.Path(os.environ['FIXTURE_UPDATE_SOURCE']).as_uri()
+    result=subprocess.run([real,*args])
+    if result.returncode:sys.exit(result.returncode)
+    sys.exit(subprocess.run([real,'-C',args[-1],'remote','set-url','origin',official]).returncode)
+os.execv(real,[real,*args])
+''')
+        wrapper.chmod(0o700)
+        (self.source/'release.txt').write_text('new release\n')
+        self.git('add','release.txt')
+        self.git('-c','user.name=StandMixer Fixture','-c','user.email=fixture@example.invalid','commit','-qm','new release')
+
+    def test_update_fetches_official_source_and_keeps_settings_without_opening_or_building(self):
+        self.prepare_update()
+        draft=self.support/'configuration.json';draft.write_text('{"customPreset":"keep"}\n')
+        protected=[draft,self.home/'custom codex/config.toml',self.home/'custom claude/settings.json']
+        before={p:p.read_bytes() for p in protected}
+        result=self.call(self.launcher,'update')
+        self.assertIn('StandMixer updated to',result.stdout)
+        self.assertEqual((self.support/'source/release.txt').read_text(),'new release\n')
+        self.assertEqual(before,{p:p.read_bytes() for p in protected})
+        self.assertFalse(self.app.exists())
+        self.assertFalse(any(c[0] in ['swift','open'] for c in self.calls()))
+        self.assertFalse((self.home/'web-launcher-called').exists())
+        self.assertFalse(list(Path(self.env['TMPDIR']).glob('standmixer-update.*')))
+        self.assertIn('Source is current; refreshing',self.call(self.launcher,'update').stdout)
+
+    def test_update_refuses_dirty_source_forks_and_invalid_arguments_before_download(self):
+        self.prepare_update()
+        for args in [('update','--yes'),('update','https://example.invalid/repo'),('update','--mac','extra')]:
+            self.assertIn('Usage:',self.call(self.launcher,*args,okay=False).stderr)
+        self.assertIn('Usage:',self.call(self.launcher,'update','--help').stdout)
+        dirty=self.support/'source/local-notes.txt';dirty.write_text('user work')
+        self.assertIn('local changes',self.call(self.launcher,'update',okay=False).stderr)
+        self.assertEqual(dirty.read_text(),'user work');dirty.unlink()
+        subprocess.run([self.env['FIXTURE_REAL_GIT'],'-C',str(self.support/'source'),'remote','set-url','origin','https://example.invalid/fork.git'],check=True)
+        self.assertIn('another source repository',self.call(self.launcher,'update',okay=False).stderr)
+        self.assertFalse(any(c[0]=='git-update-clone' for c in self.calls()))
+
+    def test_update_download_failure_cleans_up_and_failed_registration_can_retry_current_source(self):
+        self.prepare_update()
+        self.env['FIXTURE_UPDATE_CLONE_FAIL']='1'
+        self.assertEqual(self.call(self.launcher,'update',okay=False).returncode,37)
+        self.assertFalse((self.support/'source/release.txt').exists())
+        self.assertFalse(list(Path(self.env['TMPDIR']).glob('standmixer-update.*')))
+        del self.env['FIXTURE_UPDATE_CLONE_FAIL']
+        self.env['FIXTURE_PLUGIN_INSTALL_FAIL']='1'
+        self.call(self.launcher,'update',okay=False)
+        self.assertTrue((self.support/'source/release.txt').exists())
+        del self.env['FIXTURE_PLUGIN_INSTALL_FAIL']
+        self.assertIn('Source is current; refreshing',self.call(self.launcher,'update').stdout)
+
+    def test_update_mac_is_explicit_and_reports_partial_failure(self):
+        self.prepare_update()
+        self.call(self.launcher,'update','--mac')
+        binary=self.app/'Contents/MacOS/AgentMix';before=binary.read_bytes()
+        self.assertFalse(any(c[0]=='open' for c in self.calls()))
+        self.env['FIXTURE_BUILD_FAIL']='1'
+        result=self.call(self.launcher,'update','--mac',okay=False)
+        self.assertIn('plugins were updated, but the Mac app update did not finish',result.stderr)
+        self.assertEqual(binary.read_bytes(),before)
 
     def test_clone_entered_through_macos_var_alias(self):
         physical=Path(tempfile.gettempdir()).resolve()
