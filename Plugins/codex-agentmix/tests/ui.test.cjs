@@ -398,3 +398,22 @@ test('Redo of an originally unsaved change stays local even after Undo reaches t
   api.selectConfiguration(api.state.data.presets[0].configuration,'fast');await api.travelDraft();assert.equal(api.state.dirty,false);await api.travelDraft(true);assert.equal(api.state.dirty,true);assert.equal(calls.length,0);
   await api.travelDraft();await api.handleAction('saveDraft');assert.equal(calls.length,1);await api.travelDraft(true);assert.equal(calls.length,1);assert.equal(api.state.dirty,true);
 });
+
+test('version checks are capability-gated and never block or overwrite edits',async()=>{
+  const {api,nodes}=ready();let calls=0,finish;const pending=new Promise(resolve=>{finish=resolve;});
+  api.setBridge({action:async request=>{assert.equal(request.action,'checkUpdates');calls++;return pending;}});
+  await api.checkUpdates();assert.equal(calls,0);
+  api.state.data.canCheckUpdates=true;const check=api.checkUpdates();assert.equal(api.state.busy,false);
+  await api.checkUpdates();assert.equal(calls,1);
+  api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6-astra'});
+  const draft=plain(api.state.draft),markup=nodes.get('root').innerHTML;
+  finish({ok:true,update:{currentVersion:'0.1.2',latestVersion:'0.2.0'}});await check;
+  assert.deepEqual(plain(api.state.draft),draft);assert.equal(nodes.get('root').innerHTML,markup);
+  assert(api.updateNotice().includes('Update available · 0.2.0'));
+});
+test('offline or current-version responses never create errors or an update notice',async()=>{
+  const {api}=ready();api.state.data.canCheckUpdates=true;
+  api.setBridge({action:async()=>{throw Error('Offline');}});await api.checkUpdates();
+  assert.equal(api.state.notice,null);assert.equal(api.updateNotice(),'');assert.equal(api.state.busy,false);
+  api.setBridge({action:async()=>({ok:true})});await api.checkUpdates();assert.equal(api.updateNotice(),'');
+});

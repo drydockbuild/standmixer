@@ -46,7 +46,7 @@ Run `/standmixer update` in Claude Code or `$standmixer update` in Codex. Add `-
 "$HOME/Library/Application Support/AgentMix/bin/standmixer" update
 ```
 
-Updates are explicit; StandMixer does not poll or update in the background. Older installations without the update command need one installer refresh:
+Opening a Claude/Codex panel checks GitHub for a newer version at most once per day, using a shared local cache. Checks use no models or credentials, send no settings or project data, and stay quiet offline. Installing updates remains explicit; there is no background polling. Older installations without the update command need one installer refresh:
 
 ```sh
 standmixer_update="$(mktemp -d)" && git clone --depth 1 https://github.com/drydockbuild/standmixer.git "$standmixer_update/standmixer" && /bin/sh "$standmixer_update/standmixer/install.sh"

@@ -9,7 +9,7 @@ import { TASKS, PLATFORM_NAMES, PROVIDER_COLORS, PRESET_DETAILS, LEVELS, title,
 let view;
 
 function freshView() {
-  return { state: null, draft: null, platforms: [], preset: null, savedID: '', advanced: false, editSnapshot: null, undoStack: [], redoStack: [], historyCurrent: null, cleanKey: null,
+  return { state: null, draft: null, platforms: [], preset: null, savedID: '', advanced: false, editSnapshot: null, undoStack: [], redoStack: [], historyCurrent: null, cleanKey: null, updateInfo: null, checkingUpdates: false,
     more: false, interfaces: false, openingInterface: false, interfaceMessage: '', interfaceError: false, installingMac: false, macInstallMessage: '', macInstallError: false, checkingAccounts: false, accounts: null, accountError: '', currentCell: '', busy: '', error: '', message: '',
     readingPreferences: false, preferenceWarning: '', preferenceGeneration: 0, inspectionFlight: null,
     presetName: '', savePanel: false, deletePending: false, customPanel: false,
@@ -302,6 +302,18 @@ async function openSettings($, automatic) {
     } else if (automatic) view.onboardingPending = true;
     await loadState($, view.advanced);
   });
+  void checkUpdates($);
+}
+
+async function checkUpdates($) {
+  if (!view.state?.canCheckUpdates || view.checkingUpdates) return;
+  view.checkingUpdates = true;
+  try {
+    const response = await helperCall($, { action: 'checkUpdates' });
+    view.updateInfo = response.update || null;
+    $.ui.invalidate('ui.render');
+  } catch (_) { /* Version checks never interrupt settings or request model help. */ }
+  finally { view.checkingUpdates = false; }
 }
 
 async function retryOnboarding($) {
@@ -697,6 +709,7 @@ function renderSettings($, event) {
     ] }),
   ] })];
   if (view.interfaces && view.state) children.push(renderInterfaces($, elements));
+  if (view.updateInfo) children.push(Text({ color: '#6FB3B8', wrap: 'wrap', children: ['Update ' + view.updateInfo.latestVersion + ' available · /standmixer update'] }));
   if (view.busy) children.push(Text({ color: '#638ad0', children: [view.busy] }));
   if (view.readingPreferences) children.push(Text({ dimColor: true, children: ['Reading current preferences…'] }));
   if (view.error) children.push(Text({ color: 'red', wrap: 'wrap', children: [view.error] }));

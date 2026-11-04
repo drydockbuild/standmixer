@@ -28,7 +28,7 @@ final class AgentMixMCPServer: @unchecked Sendable {
         case "initialize":
             result = ["protocolVersion": Self.protocolVersion,
                       "capabilities": ["tools": ["listChanged": false], "resources": ["subscribe": false, "listChanged": false]],
-                      "serverInfo": ["name": "standmixer", "version": "0.1.1", "icons": Self.icons],
+                      "serverInfo": ["name": "standmixer", "version": StandMixerRelease.version, "icons": Self.icons],
                       "instructions": "Open StandMixer to review routing. Apply requires a stored reviewed preview ID. Account status and optional local Mac app installation run only from explicit panel actions."]
         case "ping": result = [:]
         case "tools/list": result = ["tools": Self.tools]
@@ -84,7 +84,7 @@ final class AgentMixMCPServer: @unchecked Sendable {
     }
 
     static var tools: [[String: Any]] {
-        let actions = ["state", "inspect", "saveDraft", "savePreset", "deletePreset", "preview", "apply", "previewUninstall", "uninstall", "previewRestore", "restore", "installMac", "openWeb", "openMac", "checkAccounts"]
+        let actions = ["state", "inspect", "saveDraft", "savePreset", "deletePreset", "preview", "apply", "previewUninstall", "uninstall", "previewRestore", "restore", "installMac", "openWeb", "openMac", "checkAccounts", "checkUpdates"]
         return [
             ["name": "open_standmixer", "title": "Open StandMixer", "description": "Open StandMixer routing settings inside Codex. Reads saved configuration without starting inference or changing routing.",
              "icons": Self.icons,

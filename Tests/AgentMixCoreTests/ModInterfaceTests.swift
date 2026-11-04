@@ -3,6 +3,21 @@ import XCTest
 @testable import AgentMixCore
 
 final class ModInterfaceTests: XCTestCase {
+    func testVersionCheckAcceptsNoOverridesAndFixtureModeHasNoNetworkOrWrites() async throws {
+        let fixture = IntegrationService(home: root.appendingPathComponent("version-fixture"), environment: [:], metadataOnlyDiscovery: true)
+        let api = AgentMixModInterface(service: fixture, connections: connections)
+        for extra in ["\"url\":\"https://example.invalid\"", "\"refresh\":true", "\"configuration\":{}"] {
+            let response = await api.runJSON(Data("{\"action\":\"checkUpdates\",\(extra)}".utf8))
+            XCTAssertEqual(response.exitCode, 1)
+        }
+        let result = try await send(.init(action: .checkUpdates), to: api)
+        XCTAssertEqual(result.0.exitCode, 0)
+        XCTAssertNil(result.1["update"])
+        let stateResult = try await send(.init(action: .state), to: api)
+        XCTAssertFalse(try state(stateResult.1).canCheckUpdates)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.applicationSupport.path))
+    }
+
     func testExplicitInterfaceOpeningActionsHaveNoRequestPathsAndDoNotAlterSettings() async throws {
         actor Calls { var values: [String] = []; func add(_ value: String) { values.append(value) } }
         let calls = Calls()

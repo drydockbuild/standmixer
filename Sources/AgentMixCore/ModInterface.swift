@@ -6,7 +6,7 @@ import Foundation
 /// Requests never supply file paths, commands, or writable preview contents.
 public struct AgentMixModRequest: Codable, Sendable {
     public enum Action: String, Codable, Sendable {
-        case state, inspect, saveDraft, savePreset, deletePreset, preview, apply, previewUninstall, uninstall, previewRestore, restore, installMac, openWeb, openMac, checkAccounts
+        case state, inspect, saveDraft, savePreset, deletePreset, preview, apply, previewUninstall, uninstall, previewRestore, restore, installMac, openWeb, openMac, checkAccounts, checkUpdates
     }
     public var action: Action
     public var configuration: AgentMixConfiguration?
@@ -42,6 +42,7 @@ public struct AgentMixModResponse: Encodable, Sendable {
     public var result: AgentMixModResult?
     public var inspection: AgentMixModInspection?
     public var accounts: AgentMixModAccounts?
+    public var update: StandMixerUpdate?
     public var web: AgentMixWebOpening?
     public var error: AgentMixModError?
 }
@@ -89,6 +90,7 @@ public struct AgentMixModState: Codable, Sendable {
     public var inspection: AgentMixModInspection?
     public var canRestore: Bool
     public var installedMac: AgentMixInstalledMac?
+    public var canCheckUpdates: Bool
     public var notes: [String]
 }
 
@@ -201,7 +203,8 @@ public final class AgentMixModInterface: @unchecked Sendable {
             if let object,
                let action = object["action"] as? String,
                [AgentMixModRequest.Action.installMac.rawValue, AgentMixModRequest.Action.openWeb.rawValue,
-                AgentMixModRequest.Action.openMac.rawValue, AgentMixModRequest.Action.checkAccounts.rawValue].contains(action),
+                AgentMixModRequest.Action.openMac.rawValue, AgentMixModRequest.Action.checkAccounts.rawValue,
+                AgentMixModRequest.Action.checkUpdates.rawValue].contains(action),
                Set(object.keys) != ["action"] {
                 throw ProtocolError("invalidRequest", "\(action) takes no fields other than action. Paths and commands are not accepted.")
             }
@@ -248,6 +251,8 @@ public final class AgentMixModInterface: @unchecked Sendable {
 
     private func execute(_ request: AgentMixModRequest) async throws -> AgentMixModResponse {
         switch request.action {
+        case .checkUpdates:
+            return .init(ok: true, update: await StandMixerUpdateChecker.check(service: service))
         case .openWeb:
             try Task.checkCancellation()
             let opened: AgentMixWebOpening
@@ -474,6 +479,7 @@ public final class AgentMixModInterface: @unchecked Sendable {
             inspection: try? loadCachedInspection(),
             canRestore: service.canRestore,
             installedMac: AgentMixAppOpening.installedMac(service: service),
+            canCheckUpdates: !service.metadataOnlyDiscovery,
             notes: notes)
     }
 

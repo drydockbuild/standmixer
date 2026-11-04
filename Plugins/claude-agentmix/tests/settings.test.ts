@@ -6,6 +6,7 @@ import { recipeKey, matchedPreset, modelIdentity, routeKey } from '../hooks/pres
 function harness(on, initial = state(), reviewed = preview(), placements = [true], inspectionGate = null, installGate = null, accountResult = null) {
   const calls = []; const registeredCommands = []; const openedURLs = []; let openingURL = 'http://127.0.0.1:54321/#token=' + 'a'.repeat(43);
   const updateCalls = []; let updateResult = { exitCode: 0, stdout: 'Updated fixture.', stderr: '' };
+  let updateCheck = async () => ({ok:true});
   let saveFailure = null;
   const saved = new Map();
   let opens = 0;
@@ -29,6 +30,7 @@ function harness(on, initial = state(), reviewed = preview(), placements = [true
     expect(e.argv).toEqual(['/fixture/AgentMixHelper']);
     const request = JSON.parse(e.init.stdin);
     calls.push(request);
+    if (request.action === 'checkUpdates') return { value: {exitCode:0,stdout:JSON.stringify(await updateCheck()),stderr:''} };
     if (request.action === 'openWeb') return { value: { exitCode: 0, stdout: JSON.stringify({ok: true, web: {url: openingURL}}), stderr: '' } };
     if (request.action === 'openMac') return { value: { exitCode: 0, stdout: JSON.stringify({ok: true, result: {message: 'Mac app opened.'}}), stderr: '' } };
     if (request.action === 'saveDraft' && saveFailure) return { value: { exitCode: 1, stdout: JSON.stringify({ ok: false, error: { message: saveFailure } }), stderr: '' } };
@@ -76,8 +78,28 @@ function harness(on, initial = state(), reviewed = preview(), placements = [true
   // A regression that initiates inference or a prompt fails immediately.
   on('model.complete', () => { throw new Error('Unexpected inference'); });
   on('prompt.submit', () => { throw new Error('Unexpected prompt submission'); });
-  return { calls, registeredCommands, openedURLs, updateCalls, setUpdateResult: value => { updateResult = value; }, setOpeningURL: value => { openingURL = value; }, setSaveFailure: value => { saveFailure = value; }, saved, opens: () => opens, openOptions };
+  return { calls, registeredCommands, openedURLs, updateCalls, setUpdateCheck: value => { updateCheck = value; }, setUpdateResult: value => { updateResult = value; }, setOpeningURL: value => { openingURL = value; }, setSaveFailure: value => { saveFailure = value; }, saved, opens: () => opens, openOptions };
 }
+
+test('optional version checks do not block editing or change the draft', async ($, on) => {
+  const initial={...state(),canCheckUpdates:true};const fixture=harness(on,initial);
+  let finish;const result=new Promise(resolve=>{finish=resolve;});fixture.setUpdateCheck(()=>result);
+  await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
+  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
+  finish({ok:true,update:{currentVersion:'0.1.2',latestVersion:'0.2.0'}});
+  await Promise.resolve();await Promise.resolve();
+  expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
+  expect(await ui.find({type:'Text',text:'Update 0.2.0 available · /standmixer update'})).toBeDefined();
+  expect(fixture.calls.map(x=>x.action)).toEqual(['state','checkUpdates']);
+});
+
+test('unavailable version checks remain quiet', async ($, on) => {
+  const fixture=harness(on,{...state(),canCheckUpdates:true});fixture.setUpdateCheck(async()=>{throw new Error('Offline');});
+  await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
+  expect(await ui.find({type:'Text',text:'Offline'})).toBeUndefined();
+  expect(await ui.find({key:'edit'})).toBeDefined();
+  expect(fixture.updateCalls).toEqual([]);
+});
 
 test('explicit update uses only the fixed launcher and never opens or applies settings', async ($, on) => {
   const fixture=harness(on);
