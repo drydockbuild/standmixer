@@ -1,0 +1,4 @@
+{
+  "description": "Native StandMixer settings pane and deterministic local helper",
+  "modules": ["./register.js"]
+}

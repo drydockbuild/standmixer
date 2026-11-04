@@ -1,0 +1,20 @@
+{
+  "name": "drydock-standmixer",
+  "interface": {
+    "displayName": "StandMixer"
+  },
+  "plugins": [
+    {
+      "name": "standmixer",
+      "source": {
+        "source": "local",
+        "path": "./Plugins/codex-agentmix"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

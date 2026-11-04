@@ -1,0 +1,13 @@
+{
+  "name": "drydock-standmixer",
+  "owner": {
+    "name": "Drydock"
+  },
+  "plugins": [
+    {
+      "name": "standmixer",
+      "source": "./Plugins/claude-agentmix",
+      "description": "Model presets for Claude Code and Codex, with a native settings pane."
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200, initial-scale=1">
+<title>StandMixer social preview</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:1200px;height:630px;overflow:hidden}
+body{background:#0b1220;color:#e9eef5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.card{width:1200px;height:630px;padding:31px 44px 27px;background:radial-gradient(ellipse at 5% 0%,#153139 0,transparent 49%),linear-gradient(140deg,#0b1220,#101e2c);display:flex;flex-direction:column}
+.brand-row{display:flex;align-items:center;justify-content:space-between;height:57px;flex-shrink:0}
+.brand{display:flex;align-items:center;gap:12px;font-size:35px;font-weight:650;letter-spacing:-1px}.brand svg{width:54px;height:54px;display:block}
+.preset{color:#6fb3b8;border:1px solid #6fb3b85c;background:#6fb3b80b;border-radius:22px;padding:5px 18px;font-size:19px;font-weight:550;letter-spacing:.1px}
+h1{font-family:Palatino,"Palatino Linotype","Iowan Old Style",Georgia,serif;font-weight:400;font-size:43px;line-height:1.15;letter-spacing:-1.1px;margin:16px 0 25px;white-space:nowrap}h1 span{color:#6fb3b8}
+.settings{border:1px solid #344655;border-radius:18px;overflow:hidden;background:#131e2e;flex-shrink:0}
+.grid{display:grid;grid-template-columns:266px 1fr 1fr}.cell{padding:0 23px;display:flex;align-items:center;min-width:0}.cell+.cell{border-left:1px solid #2a3948}
+.table-head{height:55px;background:#182536;font-size:22px;font-weight:600}.table-head .task{font-size:18px;font-weight:500;color:#9caeb5}.table-head .codex{background:#8caff009}.table-head .claude{background:#c49cde0a}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:11px;background:#8caff0}.claude .dot{background:#c49cde}
+.row{height:96px;border-top:1px solid #2a3948}.row.visual{height:116px}.row:nth-child(3){background:#ffffff02}
+.task-name{font-size:21px;font-weight:550;letter-spacing:-.2px;gap:12px}.task-name svg{width:25px;height:25px;flex:none;fill:none;stroke:#90b2c4;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.models{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:8px}.model{display:flex;align-items:center;gap:9px;min-height:30px;font-size:25px;font-weight:550;letter-spacing:-.35px;white-space:nowrap}.strong{color:#e49aa9}.sol{color:#e3a06b}
+.bars{display:inline-flex;align-items:flex-end;gap:3px;width:25px;height:22px;flex:none}.bars i{display:block;width:4px;border-radius:1px;background:currentColor}.bars i:nth-child(1){height:7px}.bars i:nth-child(2){height:12px}.bars i:nth-child(3){height:17px}.bars i:nth-child(4){height:22px}.sol .bars i:last-child{background:#3a4555}
+.via{display:inline-flex;align-items:center;gap:5px;border-radius:7px;padding:3px 8px;font-size:17px;font-weight:550;letter-spacing:0;margin-left:4px;line-height:1.35}.via:before{content:"";width:5px;height:5px;background:currentColor;border-radius:50%}.via.claude{background:#c49cde17;color:#c49cde}.via.codex{background:#8caff017;color:#8caff0}
+.footer{display:flex;align-items:center;justify-content:space-between;margin-top:auto;font-size:18px;color:#9caeb5}.footer .url{font-size:20px;color:#6fb3b8;letter-spacing:.2px}.footer .origin{color:#b4c1c9}
+</style>
+</head>
+<body>
+<main class="card" aria-label="StandMixer Optimized settings preview">
+  <div class="brand-row"><div class="brand"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><g transform="translate(0 5)"><g fill="none" stroke="#6FB3B8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 46V23H10V19C10 13.5 14.5 9 20 9H42C47.5 9 52 13.5 52 19V23H23V46"/><path d="M28 29H51C50.2 37.5 46.4 42 39.5 42S29 37.5 28 29Z"/><path d="M39.5 23V33"/><path d="M10 46H53" stroke="#F59E0B"/></g><circle cx="18" cy="17" r="1.8" fill="#6FB3B8"/></g></svg><span>StandMixer</span></div><span class="preset">Optimized</span></div>
+  <h1>Make <span>Claude and Codex</span> work together.</h1>
+  <section class="settings" aria-label="Selected Optimized model assignments">
+    <div class="grid table-head"><div class="cell task">Task</div><div class="cell codex"><span class="dot"></span>Codex</div><div class="cell claude"><span class="dot"></span>Claude Code</div></div>
+    <div class="grid row visual">
+      <div class="cell task-name"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20M8 9v11m-3-13h.1"/><rect x="11" y="12" width="8" height="5" rx="1"/></svg>Visual</div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Astra 6</div><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5 <span class="via claude">via Claude</span></div></div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5</div><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Fable 5.1</div></div>
+    </div>
+    <div class="grid row">
+      <div class="cell task-name"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 6-5 6 5 6m8-12 5 6-5 6M14 4l-4 16"/></svg>Implementation</div>
+      <div class="cell models"><div class="model sol"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Sol 6.1</div></div>
+      <div class="cell models"><div class="model sol"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Sol 6.1 <span class="via codex">via Codex</span></div></div>
+    </div>
+    <div class="grid row">
+      <div class="cell task-name"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 3-1 8q-1 6-8 9-7-3-8-9L3 5Zm-5 10 3.5 3.5L17 8.5"/></svg>Review &amp; Security</div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5 <span class="via claude">via Claude</span></div></div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5</div></div>
+    </div>
+  </section>
+  <div class="footer"><span>Free &amp; open source <span class="origin">· From Drydock Labs</span></span><span class="url">standmixer.dev</span></div>
+</main>
+</body>
+</html>

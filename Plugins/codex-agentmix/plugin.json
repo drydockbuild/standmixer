@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "standmixer",
+  "version": "0.1.0",
+  "description": "Interactive model presets for Claude Code and Codex, inside Codex.",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "StandMixer",
+        "shortDescription": "Model presets in an interactive settings panel",
+        "developerName": "Drydock Labs",
+        "category": "Productivity",
+        "brandColor": "#7164C3",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      }
+    }
+  }
+}

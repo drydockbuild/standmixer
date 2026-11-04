@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "standmixer": {
+      "type": "stdio",
+      "command": "./scripts/mcp.sh",
+      "args": [],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

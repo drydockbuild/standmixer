@@ -1,0 +1,5 @@
+interface:
+  display_name: "StandMixer"
+  short_description: "Open StandMixer model settings inside Codex"
+  brand_color: "#7164C3"
+  default_prompt: "Use $standmixer to open the interactive settings panel inside Codex."

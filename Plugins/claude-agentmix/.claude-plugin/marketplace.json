@@ -1,0 +1,12 @@
+{
+  "name": "drydock-standmixer",
+  "description": "Local StandMixer settings for Claude Code and Codex.",
+  "owner": { "name": "Drydock" },
+  "plugins": [
+    {
+      "name": "standmixer",
+      "source": "./",
+      "description": "Model presets for Claude Code and Codex, with a native settings pane."
+    }
+  ]
+}
