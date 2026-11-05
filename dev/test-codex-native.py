@@ -128,12 +128,15 @@ def native_loader(codex, marketplace, plugin_name, selector, package, env, cwd):
         icons = tools["open_standmixer"].get("icons", [])
         assert {icon["theme"] for icon in icons} == {"light", "dark"}, "Native entrypoint lost themed icons"
         for icon in icons:
-            assert icon["mimeType"] == "image/svg+xml" and icon["sizes"] == ["any"]
-            prefix = "data:image/svg+xml;base64,"
+            assert icon["mimeType"] == "image/png" and icon["sizes"] == ["128x128"], "SVG icons are recolored by Codex"
+            prefix = "data:image/png;base64,"
             assert icon["src"].startswith(prefix), "Sidebar icon must work without a network request"
-            decoded = base64.b64decode(icon["src"][len(prefix):], validate=True).decode()
-            name = "standmixer-mark-dark.svg" if icon["theme"] == "dark" else "standmixer-mark.svg"
-            assert decoded == (Path(__file__).resolve().parent.parent / "brand" / name).read_text().strip()
+            decoded = base64.b64decode(icon["src"][len(prefix):], validate=True)
+            assert decoded.startswith(b"\x89PNG\r\n\x1a\n")
+            assert int.from_bytes(decoded[16:20], "big") == 128 and int.from_bytes(decoded[20:24], "big") == 128
+            assert decoded[25] == 6, "Sidebar icons must retain RGB color and alpha"
+            name = "standmixer-sidebar-" + icon["theme"] + ".png"
+            assert decoded == (Path(__file__).resolve().parent.parent / "brand" / name).read_bytes()
         assert server["serverInfo"]["icons"] == icons, "Server icon fallback differs from the entrypoint"
         opening = tools["open_standmixer"]["_meta"]
         uri = opening["ui"]["resourceUri"]
