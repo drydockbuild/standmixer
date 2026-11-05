@@ -74,8 +74,14 @@ final class AgentMixMCPServer: @unchecked Sendable {
         try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "error": ["code": code, "message": message]], options: [.sortedKeys])
     }
 
-    // Codex tints SVG sidebar icons; PNGs retain the brand colors.
-    static let icons = StandMixerSidebarIcons.icons
+    // Sidebar and thread entrypoints use MCP icons, independently of the plugin's marketplace logo.
+    static let icons: [[String: Any]] = [("light", "#0E9488"), ("dark", "#6FB3B8")].map { theme, color in
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><g transform="translate(0 5)"><g fill="none" stroke="\(color)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 46V23H10V19C10 13.5 14.5 9 20 9H42C47.5 9 52 13.5 52 19V23H23V46"/><path d="M28 29H51C50.2 37.5 46.4 42 39.5 42S29 37.5 28 29Z"/><path d="M39.5 23V33"/><path d="M10 46H53" stroke="#F59E0B"/></g><circle cx="18" cy="17" r="1.8" fill="\(color)"/></g></svg>
+        """
+        return ["src": "data:image/svg+xml;base64," + Data(svg.utf8).base64EncodedString(),
+                "mimeType": "image/svg+xml", "sizes": ["any"], "theme": theme]
+    }
 
     static var tools: [[String: Any]] {
         let actions = ["state", "inspect", "saveDraft", "savePreset", "deletePreset", "preview", "apply", "previewUninstall", "uninstall", "previewRestore", "restore", "installMac", "openWeb", "openMac", "checkAccounts", "checkUpdates"]

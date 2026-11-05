@@ -9,4 +9,4 @@ The countertop mixer rests on a single Drydock amber underline. There is no sepa
 
 The Mac app uses the static navy ICNS generated with `dev/make-icon.swift`. macOS displays the bundled icon in Finder, the Dock, and the standard About panel, including its system tint treatment. `standmixer-icon-dark.svg` is the matching master.
 
-Codex sidebar entrypoints embed transparent PNGs so the host preserves their colors instead of treating them as monochrome SVG masks. Regenerate the PNGs, embedded metadata, and preview with `swift dev/make-sidebar-icons.swift .`.
+Codex currently renders third-party sidebar icons in monochrome, regardless of the image format. StandMixer supplies its mixer silhouette and theme variants; the host controls the sidebar tint.
