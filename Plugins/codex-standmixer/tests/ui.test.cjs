@@ -435,3 +435,14 @@ test('Fable 5.2 is selectable with a cross-provider badge',()=>{
   assert.equal(api.state.draft.profiles.find(p=>p.platform==='codex').routes.find(r=>r.category==='algorithms').modelID,'claude-fable-5-2');
   assert.match(api.assignment('codex','algorithms'),/Fable 5.2/);
 });
+
+
+test('main view shows fixed and range efforts even when applied, and hides Auto',()=>{
+ const {api}=ready();const route=api.state.draft.profiles.find(p=>p.platform==='codex').routes.find(r=>r.category==='algorithms');
+ assert.doesNotMatch(api.assignment('codex','algorithms'),/effort-badge/);
+ route.effort={mode:'fixed',value:'high'};api.state.data.installation.appliedConfiguration=clone(api.state.draft);
+ assert.match(api.assignment('codex','algorithms'),/aria-label="Effort: High"/);
+ route.additionalAgents=[{id:'second',modelID:'claude-opus-5-5',effort:{mode:'range',minimum:'low',maximum:'max'}}];
+ const html=api.assignment('codex','algorithms');assert.match(html,/Effort: Low–Max/);assert.match(html,/via Claude Code/);
+ route.effort={mode:'auto'};route.additionalAgents=[];assert.doesNotMatch(api.assignment('codex','algorithms'),/effort-badge/);
+});

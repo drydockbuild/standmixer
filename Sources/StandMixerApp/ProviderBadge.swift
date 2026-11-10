@@ -51,6 +51,16 @@ struct AssignmentChangeLine: View {
                 if let provider = provider ?? (removed ? oldPlatform : nil), provider != platform {
                     ProviderBadge(platform: provider, subdued: removed)
                 }
+                if modelID != Route.autoControllerModelID, let effort, effort.mode != .auto, !removed {
+                    Text(effort.shortLabel)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(StandMixerTheme.muted)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(StandMixerTheme.muted.opacity(0.10), in: Capsule())
+                        .fixedSize()
+                        .help("Effort: " + effort.shortLabel)
+                        .accessibilityLabel("Effort: " + effort.shortLabel)
+                }
                 if showsComparison && removed { Text("Removed").font(.system(size: 9, weight: .medium)).foregroundStyle(StandMixerTheme.accent) }
                 if showsComparison && added { Text("Added").font(.system(size: 8.5, weight: .medium)).foregroundStyle(StandMixerTheme.accent) }
             }
@@ -64,7 +74,7 @@ struct AssignmentChangeLine: View {
                 .font(.system(size: 9)).padding(.leading, prefix == nil ? 22 : 34)
             }
             if showEffort, modelID != Route.autoControllerModelID, let effort, !removed,
-               oldEffort.map({ !$0.semanticallyMatches(effort) }) ?? (effort.mode != .auto) {
+               oldEffort.map({ !$0.semanticallyMatches(effort) }) ?? false {
                 (Text("Effort ").foregroundColor(StandMixerTheme.muted) + effortDifference(effort))
                     .font(.system(size: 9)).padding(.leading, prefix == nil ? 22 : 34)
                     .fixedSize(horizontal: false, vertical: true)

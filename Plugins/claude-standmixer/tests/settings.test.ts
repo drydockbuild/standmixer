@@ -996,3 +996,12 @@ test('Fable 5.2 can be selected without changing other assignments', async ($, o
   expect((await ui.find({key:'claude-algorithms-member-0-model'})).props.value).toBe('claude-fable-5-2');
   expect(fixture.calls.some(x=>x.action==='apply')).toBe(false);
 });
+
+
+test('main panel shows fixed and range efforts without entering Edit', async ($, on) => {
+ const initial=state();const route=initial.configuration.profiles.find(p=>p.platform==='claude').routes.find(r=>r.category==='algorithms');
+ route.effort={mode:'fixed',value:'high'};route.additionalAgents=[{id:'secondary',modelID:'claude-fable-5-2',effort:{mode:'range',minimum:'low',maximum:'max'}}];
+ harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
+ expect(await ui.find({type:'Text',text:'High'})).toBeDefined();expect(await ui.find({type:'Text',text:'Low–Max'})).toBeDefined();
+ expect(await ui.find({key:'claude-algorithms-member-0-model'})).toBeUndefined();
+});

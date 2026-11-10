@@ -74,6 +74,12 @@ status: released 0.1.7 on 2026-11-10; local verification complete · started: 20
 - [x] Add Fable 5.2 to the catalog and all model pickers with its supported efforts and four-bar identity (~5m). · took: ~4m
 - [x] Verify selection and generated worker recipes; install locally without changing existing assignments (~7m). · took: ~6m
 
+## 0.1.8
+status: released 0.1.8 on 2026-11-10 · started: 2026-11-10 · revision: local-018-1 · Mac build: 11 · took: ~8m
+
+- [x] Show manually selected effort and ranges in the main settings view; keep Auto quiet (~5m). · took: ~3m
+- [x] Verify and install the display update locally without modifying any assignments (~7m). · took: ~5m
+
 ## 0.2
 
 - **Automatic model tracking and upgrades:** discover new releases from authoritative provider metadata and exposed harness catalogs, with cached checks rather than per-task model calls. Offer opt-in successor tracking alongside exact-version pins. Prefer compatible successors within the selected provider/family; consider account access, effort/capability changes, and subscription/cost limits. Preview changes, preserve custom assignments and team structure, never silently cross providers or increase cost tiers, and support rollback. Do not change an in-progress job's model.
