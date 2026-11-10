@@ -17,7 +17,7 @@ p = pathlib.Path
 name = p(sys.argv[0]).name
 a = sys.argv[1:]
 home = p(os.environ['HOME'])
-support = home / 'Library/Application Support/AgentMix'
+support = home / 'Library/Application Support/StandMixer'
 with open(os.environ['FIXTURE_LOG'], 'a') as f: f.write(json.dumps([name, *a]) + '\n')
 if name in ('codex', 'claude'):
     state = home / (name + '-marketplace.json')
@@ -34,7 +34,7 @@ if name in ('codex', 'claude'):
                 if p(root) == p(a[3]):
                     print('Marketplace '+key+' already on disk — declared in user settings')
                     sys.exit(0)
-            if os.environ.get('FIXTURE_CLAUDE_NESTED_ADD_FAIL') and a[3].endswith('/Plugins/claude-agentmix'): sys.exit(21)
+            if os.environ.get('FIXTURE_CLAUDE_NESTED_ADD_FAIL') and a[3].endswith('/Plugins/claude-standmixer'): sys.exit(21)
         key='drydock-standmixer'
         if key in roots: sys.exit(7)
         roots[key]=a[3]
@@ -44,23 +44,29 @@ if name in ('codex', 'claude'):
         state.write_text(json.dumps(roots))
     elif a[:2] == ['plugin','list']:
         marketplace=a[a.index('--marketplace')+1]
-        plugin='agentmix' if marketplace == 'drydock-agentmix' else 'standmixer'
+        plugin='standmixer' if marketplace == 'drydock-standmixer' else 'standmixer'
         root=roots[marketplace]
-        print(json.dumps({'installed':[{'pluginId':plugin+'@'+marketplace,'name':plugin,'marketplaceName':marketplace,'version':'0.1.8','installed':True,'enabled':True,'source':{'source':'local','path':root+'/Plugins/codex-agentmix'},'marketplaceSource':{'sourceType':'local','source':root}}],'available':[]}))
-    elif a[:2] == ['plugin','remove']:
-        if a[2] == 'agentmix@drydock-agentmix' and os.environ.get('FIXTURE_LEGACY_REMOVE_FAIL'): sys.exit(18)
+        print(json.dumps({'installed':[{'pluginId':plugin+'@'+marketplace,'name':plugin,'marketplaceName':marketplace,'version':'0.1.8','installed':True,'enabled':True,'source':{'source':'local','path':root+'/Plugins/codex-standmixer'},'marketplaceSource':{'sourceType':'local','source':root}}],'available':[]}))
+    elif a[:2] == ['plugin','remove'] or a[:2] == ['plugin','uninstall']:
+        if os.environ.get('FIXTURE_REMOVE_MARKETPLACE'):
+            roots.pop(a[2].split('@')[-1], None);state.write_text(json.dumps(roots))
     elif a[:2] in (['plugin','add'], ['plugin','install'], ['plugin','update']):
         if name == 'claude' and a[2].split('@')[-1] not in roots: print('Plugin not found in marketplace',file=sys.stderr); sys.exit(20)
         if os.environ.get('FIXTURE_PLUGIN_INSTALL_FAIL') or (a[1] == 'update' and os.environ.get('FIXTURE_PLUGIN_UPDATE_FAIL')): sys.exit(14)
-    elif a[:2] == ['plugin','disable']:
-        if a[2] == 'agentmix@drydock-agentmix' and os.environ.get('FIXTURE_LEGACY_DISABLE_FAIL'): sys.exit(15)
     else: sys.exit(88)
 elif name == 'AgentMixHelper':
+    if a == ['--standmixer','uninstall','--yes']:
+        print('Old fixture uninstalled')
+    elif not a:
+        print(json.dumps({'state':{'installation':{'hasInstallation':bool(os.environ.get('FIXTURE_OLD_CONFLICT'))}}}))
+    else:sys.exit(89)
+elif name == 'StandMixerHelper':
     if a == ['--bootstrap']:
-        dest = support / ('bin' if os.environ.get('FIXTURE_LEGACY_BOOTSTRAP') else 'runtime') / 'AgentMixHelper'
+        dest = support / ('bin' if os.environ.get('FIXTURE_LEGACY_BOOTSTRAP') else 'runtime') / 'StandMixerHelper'
         dest.parent.mkdir(parents=True, exist_ok=True)
         if dest != p(sys.argv[0]): shutil.copyfile(sys.argv[0], dest); dest.chmod(0o700)
         print(dest)
+    elif a == ['--installer-keep-native-defaults']: pass
     elif a[:1] == ['--installer-marketplace-source']:
         if os.environ.get('FIXTURE_BAD_UI_INODE') == str(p(sys.argv[0]).stat().st_ino): os.kill(os.getpid(),9)
         data = json.load(sys.stdin)
@@ -71,21 +77,11 @@ elif name == 'AgentMixHelper':
         entry = found[0]
         if (a[1] == 'codex' and entry['marketplaceSource']['sourceType'] != 'local') or (a[1] == 'claude' and entry['source'] != 'directory'): sys.exit(2)
         print(entry['root' if a[1] == 'codex' else 'path'])
-    elif a[:1] == ['--installer-codex-package']:
-        data=json.load(sys.stdin)
-        if a[1] == 'prepare':
-            if os.environ.get('FIXTURE_CODEX_CACHE_MODIFIED'): print('legacy cache modified; kept',file=sys.stderr); sys.exit(16)
-            backup=support/'legacy-plugin-backups/codex-agentmix'/str(os.getpid())/'package'
-            backup.parent.mkdir(parents=True)
-            shutil.copytree(support/'.source-install.lock/legacy-codex-expected',backup)
-            print(json.dumps({'backup':str(backup)}))
-        elif a[1] == 'check' and os.environ.get('FIXTURE_CODEX_CACHE_CHANGES'): print('legacy cache changed; kept',file=sys.stderr); sys.exit(17)
-        elif a[1] == 'canonical-check' and os.environ.get('FIXTURE_NEW_CODEX_CACHE_MODIFIED'): print('new cache changed; kept',file=sys.stderr); sys.exit(19)
     elif a == ['--standmixer','install','--yes']:
         for root in [home / '.agents', p(os.environ['CLAUDE_CONFIG_DIR'])]:
             dest = root / 'skills/standmixer/SKILL.md'
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text('Managed by AgentMix fixture\n')
+            dest.write_text('Managed by StandMixer fixture\n')
     elif a[:1] == ['--session-url']:
         print(json.loads(p(a[1]).read_text())['url'])
     elif a[:1] == ['--serve-ui']:
@@ -111,14 +107,14 @@ elif name in ('swift','swiftc'):
         if os.environ.get('FIXTURE_APP_APPEARS'):
             app.mkdir(parents=True, exist_ok=True)
             (app/'keep').write_text('new user app')
-        if os.environ.get('FIXTURE_APP_CHANGES'): (app/'Contents/MacOS/AgentMix').write_text('user edit during build')
+        if os.environ.get('FIXTURE_APP_CHANGES'): (app/'Contents/MacOS/StandMixer').write_text('user edit during build')
         if os.environ.get('FIXTURE_RECEIPT_CHANGES'): (support/'mac-app.receipt').write_text('user receipt edit')
         if os.environ.get('FIXTURE_BUILD_FAIL'):
             print('fixture compiler error: source did not compile',file=sys.stderr)
             sys.exit(9)
         scratch = p(a[a.index('--scratch-path')+1]) / 'release'
         scratch.mkdir(parents=True, exist_ok=True)
-        product=a[a.index('--product')+1] if '--product' in a else 'AgentMix'
+        product=a[a.index('--product')+1] if '--product' in a else 'StandMixer'
         payload='fixture app binary ' + os.environ.get('FIXTURE_APP_VERSION','one')
         if os.environ.get('FIXTURE_LEAK_PATH'): payload += str(home)
         (scratch / product).write_text(payload)
@@ -129,10 +125,8 @@ elif name == 'lipo':
     if a[:1] == ['-create']: shutil.copyfile(a[1], a[a.index('-output')+1])
 elif name == 'iconutil': p(a[a.index('-o')+1]).write_text('icon fixture')
 elif name == 'codesign':
-    if '--verify' in a and os.environ.get('FIXTURE_SIGN_FAIL') and '.agentmix-deploy.' in a[-1]: sys.exit(5)
+    if '--verify' in a and os.environ.get('FIXTURE_SIGN_FAIL') and '.standmixer-deploy.' in a[-1]: sys.exit(5)
 elif name == 'mv':
-    if os.environ.get('FIXTURE_LEGACY_CHANGE_DURING_PUBLISH') and a[-1] == str(support/'bin/standmixer'):
-        (support/'bin/agentmix').write_text('user replacement during install\n')
     if os.environ.get('FIXTURE_COMMAND_RECEIPT_FAIL') and a[-1] == str(support/'bin/.standmixer-launcher.sha256') and '.command-stage.' in a[0] and '/previous-' not in a[0]: sys.exit(13)
     if os.environ.get('FIXTURE_RECEIPT_FAIL') and a[-1] == str(support/'mac-app.receipt'): sys.exit(11)
     if os.environ.get('FIXTURE_SOURCE_PUBLISH_FAIL') and a[-1] == str(support/'source') and not a[0].endswith('previous-source'): sys.exit(12)
@@ -147,24 +141,24 @@ else: sys.exit(90)
 
 class Installers(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='agentmix-install-fixture-', dir='/private/tmp')
+        self.temp = tempfile.TemporaryDirectory(prefix='standmixer-install-fixture-', dir='/private/tmp')
         self.root = Path(self.temp.name)
         self.source = self.root / 'source checkout'
         self.source.mkdir()
-        for file in ['install.sh','dev/install-common.sh','dev/agentmix.sh','dev/update.sh','dev/install-mac.sh','dev/build.sh','dev/build-paths.sh','dev/build-claude-plugin.sh','dev/build-codex-plugin.sh','dev/install-codex-ui.sh','dev/make-icon.swift','Plugins/claude-agentmix/scripts/bootstrap.sh','Plugins/claude-agentmix/.claude-plugin/marketplace.json','Plugins/codex-agentmix/scripts/mcp.sh']:
+        for file in ['install.sh','dev/install-common.sh','dev/retire-old-install.sh','dev/standmixer.sh','dev/update.sh','dev/install-mac.sh','dev/build.sh','dev/build-paths.sh','dev/build-claude-plugin.sh','dev/build-codex-plugin.sh','dev/install-codex-ui.sh','dev/make-icon.swift','Plugins/claude-standmixer/scripts/bootstrap.sh','Plugins/claude-standmixer/.claude-plugin/marketplace.json','Plugins/codex-standmixer/scripts/mcp.sh']:
             dest = self.source / file
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(PROJECT / file, dest)
-        for file in ['.agents/plugins/marketplace.json','.claude-plugin/marketplace.json','Plugins/codex-agentmix/ui/index.html']:
+        for file in ['.agents/plugins/marketplace.json','.claude-plugin/marketplace.json','Plugins/codex-standmixer/ui/index.html']:
             dest = self.source / file
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text('{}')
         for host in ['codex','claude']:
-            dest = self.source / f'Plugins/{host}-agentmix/bin/AgentMixHelper'
+            dest = self.source / f'Plugins/{host}-standmixer/bin/StandMixerHelper'
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_text('#!' + sys.executable + '\n' + FAKE)
             dest.chmod(0o700)
-        panel = self.source / 'Plugins/codex-agentmix/scripts/open-ui.sh'
+        panel = self.source / 'Plugins/codex-standmixer/scripts/open-ui.sh'
         panel.parent.mkdir(parents=True, exist_ok=True)
         panel.write_text("#!/bin/sh\nprintf 'called\\n' > \"$HOME/web-launcher-called\"\nprintf '%s\\n' '{\"url\":\"http://127.0.0.1:12345/#token=fixture\",\"pid\":123}'\n")
         self.home = self.root / 'private home'
@@ -178,12 +172,12 @@ class Installers(unittest.TestCase):
         self.sdk = self.root / 'sdk'
         self.sdk.mkdir()
         self.env = os.environ.copy()
-        self.env.update(HOME=str(self.home), CODEX_HOME=str(self.home/'custom codex'), CLAUDE_CONFIG_DIR=str(self.home/'custom claude'), PATH=str(self.bin)+':/usr/bin:/bin:/usr/sbin:/sbin', FIXTURE_LOG=str(self.root/'calls.jsonl'), FIXTURE_SDK=str(self.sdk), AGENTMIX_APPLICATIONS_DIR=str(self.root/'fixture Applications'))
+        self.env.update(HOME=str(self.home), CODEX_HOME=str(self.home/'custom codex'), CLAUDE_CONFIG_DIR=str(self.home/'custom claude'), PATH=str(self.bin)+':/usr/bin:/bin:/usr/sbin:/sbin', FIXTURE_LOG=str(self.root/'calls.jsonl'), FIXTURE_SDK=str(self.sdk), STANDMIXER_APPLICATIONS_DIR=str(self.root/'fixture Applications'))
         for var in ['GIT_DIR','GIT_WORK_TREE','GIT_INDEX_FILE','SDKROOT','CODEX_THREAD_ID','CLAUDECODE']: self.env.pop(var, None)
         self.git('init','-q')
         self.git('add','.')
-        self.git('-c','user.name=AgentMix Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture installer source')
-        self.support = self.home / 'Library/Application Support/AgentMix'
+        self.git('-c','user.name=StandMixer Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture installer source')
+        self.support = self.home / 'Library/Application Support/StandMixer'
         self.launcher = self.support / 'bin/standmixer'
         self.app = self.home / 'Applications/StandMixer.app'
         for config, text in [(self.home/'custom codex/config.toml','model = "keep-codex"\n'), (self.home/'custom claude/settings.json','{"model":"keep-claude"}\n')]:
@@ -199,6 +193,85 @@ class Installers(unittest.TestCase):
         return result
     def install(self, *args): return self.call(self.source/'install.sh','--no-open',*args)
     def calls(self): return [json.loads(x) for x in Path(self.env['FIXTURE_LOG']).read_text().splitlines()]
+
+    def seed_old_install(self):
+        old = self.home / 'Library/Application Support/AgentMix'
+        (old/'source').mkdir(parents=True)
+        (old/'source/.agentmix-source').write_text('AgentMix source checkout v1\n')
+        (old/'runtime').mkdir()
+        engine = old/'runtime/AgentMixHelper'
+        engine.write_text('#!' + sys.executable + '\n' + FAKE); engine.chmod(0o700)
+        (old/'runtime/.engine.sha256').write_text(hashlib.sha256(engine.read_bytes()).hexdigest()+'\n')
+        (old/'configuration.json').write_text('{"custom":"keep"}')
+        (old/'presets.json').write_text('[]')
+        for host in ['codex', 'claude']:
+            root = old/'source' if host == 'codex' else old/'source/Plugins/claude-agentmix'
+            (self.home/f'{host}-marketplace.json').write_text(json.dumps({'drydock-standmixer':str(root)}))
+        return old
+
+    def test_old_install_retired_once_preferences_kept_and_registrations_replaced(self):
+        old = self.seed_old_install()
+        (old/'private-notes').write_text('preserve unrelated file')
+        result = self.install()
+        self.assertIn('Old installation retired', result.stdout)
+        self.assertFalse(old.exists())
+        retired = list((self.support/'Retired').glob('*/support'))
+        self.assertEqual(len(retired), 1)
+        self.assertEqual((retired[0]/'private-notes').read_text(), 'preserve unrelated file')
+        self.assertEqual((self.support/'configuration.json').read_text(), '{"custom":"keep"}')
+        for host in ['codex','claude']:
+            roots=json.loads((self.home/f'{host}-marketplace.json').read_text())
+            self.assertTrue(roots['drydock-standmixer'].startswith(str(self.support/'source')))
+        self.install()
+        self.assertEqual(sum(x[:2] == ['AgentMixHelper','--standmixer'] for x in self.calls()),1)
+
+    def test_old_plugin_removal_may_also_remove_its_marketplace(self):
+        old=self.seed_old_install();self.env['FIXTURE_REMOVE_MARKETPLACE']='1'
+        self.install()
+        self.assertFalse(old.exists())
+        for host in ['codex','claude']:
+            roots=json.loads((self.home/f'{host}-marketplace.json').read_text())
+            self.assertTrue(roots['drydock-standmixer'].startswith(str(self.support/'source')))
+
+    def test_old_modified_helper_or_cleanup_conflicts_are_preserved(self):
+        old = self.seed_old_install()
+        engine = old/'runtime/AgentMixHelper'
+        engine.write_text(engine.read_text()+'# edited\n')
+        self.assertIn('helper was modified', self.call(self.source/'install.sh','--no-open',okay=False).stderr)
+        self.assertTrue(old.exists())
+        (old/'runtime/.engine.sha256').write_text(hashlib.sha256(engine.read_bytes()).hexdigest()+'\n')
+        self.env['FIXTURE_OLD_CONFLICT']='1'
+        self.assertIn('Old settings have conflicts',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
+        self.assertTrue(old.exists())
+        self.assertFalse((old/'.source-install.lock').exists())
+        self.assertFalse(any(x[:2] in (['codex','plugin'],['claude','plugin']) and 'remove' in x for x in self.calls()))
+
+    def test_old_app_retirement_requires_receipt_and_new_preferences_win(self):
+        old = self.seed_old_install()
+        app=self.home/'Applications/StandMixer.app'
+        binary=app/'Contents/MacOS/AgentMix';binary.parent.mkdir(parents=True);binary.write_bytes(b'old app')
+        (old/'mac-app.receipt').write_text(str(app)+'\n'+hashlib.sha256(binary.read_bytes()).hexdigest()+'\n')
+        self.support.mkdir(parents=True);(self.support/'configuration.json').write_text('{"custom":"new"}')
+        self.install()
+        self.assertFalse(app.exists())
+        self.assertTrue(next((self.support/'Retired').glob('*/previous.app')).exists())
+        self.assertEqual((self.support/'configuration.json').read_text(),'{"custom":"new"}')
+
+    def test_foreign_registration_stops_before_old_uninstall(self):
+        old=self.seed_old_install()
+        (self.home/'claude-marketplace.json').write_text(json.dumps({'drydock-standmixer':'/unrelated/source'}))
+        self.assertIn('uses another source',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
+        self.assertTrue(old.exists())
+        self.assertFalse(any(x[:2]==['AgentMixHelper','--standmixer'] for x in self.calls()))
+
+    def test_old_root_redirect_and_active_installer_are_preserved(self):
+        old = self.seed_old_install()
+        lock=old/'.source-install.lock';lock.mkdir()
+        self.assertIn('old installation is still running',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
+        self.assertTrue(lock.exists());lock.rmdir()
+        moved=self.root/'unrelated';old.rename(moved);old.symlink_to(moved)
+        self.assertIn('redirected',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
+        self.assertTrue((moved/'configuration.json').exists())
 
     def prepare_update(self):
         official='https://github.com/drydockbuild/standmixer.git'
@@ -268,7 +341,7 @@ os.execv(real,[real,*args])
     def test_update_mac_is_explicit_and_reports_partial_failure(self):
         self.prepare_update()
         self.call(self.launcher,'update','--mac')
-        binary=self.app/'Contents/MacOS/AgentMix';before=binary.read_bytes()
+        binary=self.app/'Contents/MacOS/StandMixer';before=binary.read_bytes()
         self.assertFalse(any(c[0]=='open' for c in self.calls()))
         self.env['FIXTURE_BUILD_FAIL']='1'
         result=self.call(self.launcher,'update','--mac',okay=False)
@@ -297,7 +370,7 @@ os.execv(real,[real,*args])
             target.parent.mkdir(parents=True,exist_ok=True)
             shutil.copyfile(PROJECT/name,target)
         self.git('add','.')
-        self.git('-c','user.name=AgentMix Fixture','-c','user.email=fixture@example.invalid','commit','-qm','parent repository fixture')
+        self.git('-c','user.name=StandMixer Fixture','-c','user.email=fixture@example.invalid','commit','-qm','parent repository fixture')
         result=self.call(nested/'install.sh','--no-open',okay=False)
         self.assertIn('Expected the complete StandMixer Git checkout',result.stderr)
         self.assertFalse((self.support/'source').exists())
@@ -366,8 +439,8 @@ os.execv(real,[real,*args])
         self.assertFalse(any('--serve-ui' in x or x[0]=='open' for x in self.calls()))
 
     def test_explicit_web_reports_session_folder_permissions(self):
-        script=self.source/'Plugins/codex-agentmix/scripts/open-ui.sh'
-        shutil.copyfile(PROJECT/'Plugins/codex-agentmix/scripts/open-ui.sh',script)
+        script=self.source/'Plugins/codex-standmixer/scripts/open-ui.sh'
+        shutil.copyfile(PROJECT/'Plugins/codex-standmixer/scripts/open-ui.sh',script)
         library=self.home/'Library'
         library.mkdir()
         library.chmod(0o500)
@@ -383,8 +456,8 @@ os.execv(real,[real,*args])
         self.assertFalse(Path(self.env['FIXTURE_LOG']).exists())
 
     def test_explicit_web_reports_listener_denial_without_retry(self):
-        script=self.source/'Plugins/codex-agentmix/scripts/open-ui.sh'
-        shutil.copyfile(PROJECT/'Plugins/codex-agentmix/scripts/open-ui.sh',script)
+        script=self.source/'Plugins/codex-standmixer/scripts/open-ui.sh'
+        shutil.copyfile(PROJECT/'Plugins/codex-standmixer/scripts/open-ui.sh',script)
         for code in ['1','13','10']:
             with self.subTest(code=code):
                 log=Path(self.env['FIXTURE_LOG'])
@@ -400,83 +473,28 @@ os.execv(real,[real,*args])
                 self.assertEqual(sum('--serve-ui' in x for x in self.calls()),1)
                 self.assertFalse((self.support/'CodexSessions/current.json').exists())
 
-    def legacy_command(self, content=None):
-        alias=self.support/'bin/agentmix'
-        if content is None:
-            content=b'''#!/bin/sh
-# Managed by AgentMix: legacy command alias v1.
-set -eu
-BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec "$BIN_DIR/standmixer" "$@"
-'''
-        alias.write_bytes(content)
-        alias.chmod(0o700)
-        receipt=self.support/'bin/.agentmix-launcher.sha256'
-        receipt.write_text(hashlib.sha256(content).hexdigest()+'\n')
-        return alias,receipt
 
     def test_only_canonical_command_is_installed(self):
         self.install()
-        self.assertFalse((self.support/'bin/agentmix').exists())
-        self.assertFalse((self.support/'bin/.agentmix-launcher.sha256').exists())
+        self.assertTrue((self.support/'bin/standmixer').exists())
+        self.assertTrue((self.support/'bin/.standmixer-launcher.sha256').exists())
         self.assertIn('stable no-inference command launcher v1',self.launcher.read_text())
         self.assertIn('--standmixer',self.launcher.read_text())
         receipt=self.support/'bin/.standmixer-launcher.sha256'
         self.assertEqual(receipt.read_text().strip(),hashlib.sha256(self.launcher.read_bytes()).hexdigest())
         session=json.loads(self.call(self.launcher,'web-url').stdout)
         self.assertEqual(session['url'],'http://127.0.0.1:12345/#token=fixture')
-        self.assertIn(str(self.support/'runtime/AgentMixHelper'),self.call(self.launcher,'status').stdout)
+        self.assertIn(str(self.support/'runtime/StandMixerHelper'),self.call(self.launcher,'status').stdout)
         self.assertFalse(any(x[0]=='open' for x in self.calls()))
 
-    def test_owned_legacy_alias_and_previous_launcher_retire_with_recovery_copies(self):
-        self.install()
-        for content in [None,self.launcher.read_bytes()]:
-            alias,receipt=self.legacy_command(content)
-            before=(alias.read_bytes(),receipt.read_bytes())
-            self.install()
-            self.assertFalse(alias.exists())
-            self.assertFalse(receipt.exists())
-            backups=list((self.support/'retired-commands').glob('agentmix.*'))
-            self.assertTrue(any((p/'agentmix').read_bytes()==before[0] and (p/'.agentmix-launcher.sha256').read_bytes()==before[1] for p in backups))
-        # A repeated install does not recreate the retired command.
-        self.install()
-        self.assertFalse(alias.exists())
 
-    def test_modified_foreign_and_symlink_legacy_commands_are_preserved(self):
-        self.install()
-        for content in [b'user replacement\n',b'#!/bin/sh\n# Managed by AgentMix\nuser replacement\n']:
-            alias,receipt=self.legacy_command(content)
-            before=(alias.read_bytes(),receipt.read_bytes())
-            self.assertIn('Preserved',self.install().stdout)
-            self.assertEqual((alias.read_bytes(),receipt.read_bytes()),before)
-        outside=self.root/'outside command'
-        outside.write_text('preserve outside')
-        alias.unlink();alias.symlink_to(outside)
-        self.install()
-        self.assertTrue(alias.is_symlink())
-        self.assertEqual(outside.read_text(),'preserve outside')
 
-    def test_legacy_retirement_rolls_back_when_canonical_publication_fails(self):
-        self.install()
-        alias,receipt=self.legacy_command()
-        before={name:(self.support/'bin'/name).read_bytes() for name in ['standmixer','agentmix','.standmixer-launcher.sha256','.agentmix-launcher.sha256']}
-        self.env['FIXTURE_COMMAND_RECEIPT_FAIL']='1'
-        self.call(self.source/'install.sh','--no-open',okay=False)
-        for name,payload in before.items():self.assertEqual((self.support/'bin'/name).read_bytes(),payload)
 
-    def test_legacy_command_changed_during_install_is_not_restored_over(self):
-        self.install()
-        alias,receipt=self.legacy_command()
-        receipt_before=receipt.read_bytes()
-        self.env['FIXTURE_LEGACY_CHANGE_DURING_PUBLISH']='1'
-        self.assertIn('legacy command changed',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
-        self.assertEqual(alias.read_text(),'user replacement during install\n')
-        self.assertEqual(receipt.read_bytes(),receipt_before)
 
     def test_canonical_command_symlink_is_preserved_and_fresh_failure_rolls_back(self):
         self.env['FIXTURE_COMMAND_RECEIPT_FAIL']='1'
         self.call(self.source/'install.sh','--no-open',okay=False)
-        for name in ['standmixer','agentmix','.standmixer-launcher.sha256','.agentmix-launcher.sha256']:
+        for name in ['standmixer','standmixer','.standmixer-launcher.sha256','.standmixer-launcher.sha256']:
             self.assertFalse((self.support/'bin'/name).exists())
         del self.env['FIXTURE_COMMAND_RECEIPT_FAIL']
         self.install()
@@ -488,45 +506,8 @@ exec "$BIN_DIR/standmixer" "$@"
         self.assertTrue(self.launcher.is_symlink())
         self.assertEqual(outside.read_text(),'preserve outside')
 
-    def test_owned_legacy_app_migrates_with_receipt(self):
-        self.install()
-        legacy=self.home/'Applications/AgentMix.app'
-        self.call(self.launcher,'install-mac','--no-open','--destination',str(legacy))
-        self.assertTrue(legacy.is_dir())
-        self.env['FIXTURE_APP_VERSION']='migrated'
-        self.call(self.launcher,'install-mac','--no-open')
-        self.assertFalse(legacy.exists())
-        self.assertTrue(self.app.is_dir())
-        self.assertEqual((self.support/'mac-app.receipt').read_text().splitlines()[0],str(self.app))
-        self.assertIn('<key>CFBundleName</key><string>StandMixer</string>',(self.app/'Contents/Info.plist').read_text())
-        self.assertIn('<key>CFBundleIdentifier</key><string>build.drydock.AgentMix</string>',(self.app/'Contents/Info.plist').read_text())
 
-    def test_modified_or_unowned_legacy_app_is_preserved(self):
-        self.install()
-        legacy=self.home/'Applications/AgentMix.app'
-        self.call(self.launcher,'install-mac','--no-open','--destination',str(legacy))
-        binary=legacy/'Contents/MacOS/AgentMix'
-        binary.write_text('legacy user edit')
-        result=self.call(self.launcher,'install-mac','--no-open')
-        self.assertIn('Preserved the modified or unowned legacy app',result.stdout)
-        self.assertEqual(binary.read_text(),'legacy user edit')
-        self.assertTrue(self.app.is_dir())
-        shutil.rmtree(self.app)
-        result=self.call(self.launcher,'install-mac','--no-open')
-        self.assertIn('Preserved the modified or unowned legacy app',result.stdout)
-        self.assertEqual(binary.read_text(),'legacy user edit')
 
-    def test_legacy_app_migration_rolls_back_before_receipt(self):
-        self.install()
-        legacy=self.home/'Applications/AgentMix.app'
-        self.call(self.launcher,'install-mac','--no-open','--destination',str(legacy))
-        original=(legacy/'Contents/MacOS/AgentMix').read_bytes()
-        receipt=(self.support/'mac-app.receipt').read_bytes()
-        self.env['FIXTURE_RECEIPT_FAIL']='1'
-        self.call(self.launcher,'install-mac','--no-open',okay=False)
-        self.assertEqual((legacy/'Contents/MacOS/AgentMix').read_bytes(),original)
-        self.assertEqual((self.support/'mac-app.receipt').read_bytes(),receipt)
-        self.assertFalse(self.app.exists())
 
     def test_detected_harness_and_empty_custom_config_roots(self):
         (self.bin/'claude').unlink()
@@ -539,7 +520,7 @@ exec "$BIN_DIR/standmixer" "$@"
 
     def test_known_cli_fallbacks_and_path_precedence(self):
         # PATH stays authoritative even when a known bundle also exists.
-        codex=Path(self.env['AGENTMIX_APPLICATIONS_DIR'])/'ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'
+        codex=Path(self.env['STANDMIXER_APPLICATIONS_DIR'])/'ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex'
         codex.parent.mkdir(parents=True)
         codex.write_text('#!'+sys.executable+'\n'+FAKE)
         codex.chmod(0o700)
@@ -549,7 +530,7 @@ exec "$BIN_DIR/standmixer" "$@"
         native.chmod(0o700)
         common=str(self.source/'dev/install-common.sh')
         def find(platform):
-            result=subprocess.run(['/bin/sh','-c','. "$1"; agentmix_find_cli "$2"','fixture',common,platform],env=self.env,text=True,capture_output=True,check=True)
+            result=subprocess.run(['/bin/sh','-c','. "$1"; standmixer_find_cli "$2"','fixture',common,platform],env=self.env,text=True,capture_output=True,check=True)
             return result.stdout.strip()
         self.assertEqual(find('codex'),str(self.bin/'codex'))
         self.assertEqual(find('claude'),str(self.bin/'claude'))
@@ -566,40 +547,14 @@ exec "$BIN_DIR/standmixer" "$@"
         for host in ['codex','claude']: (self.home/f'{host}-marketplace.json').write_text(json.dumps(str(self.source)))
         self.install()
         for host in ['codex','claude']:
-            expected=self.support/'source' if host == 'codex' else self.support/'source/Plugins/claude-agentmix'
+            expected=self.support/'source' if host == 'codex' else self.support/'source/Plugins/claude-standmixer'
             self.assertEqual(json.loads((self.home/f'{host}-marketplace.json').read_text())['drydock-standmixer'],str(expected))
         (self.home/'codex-marketplace.json').write_text(json.dumps('/some/other/checkout'))
         result=self.call(self.source/'install.sh','--no-open',okay=False)
         self.assertIn('belongs to another source',result.stderr)
         self.assertEqual(json.loads((self.home/'codex-marketplace.json').read_text()),'/some/other/checkout')
 
-    def test_owned_legacy_claude_plugin_disabled_after_new_install(self):
-        (self.bin/'codex').unlink()
-        state=self.home/'claude-marketplace.json'
-        state.write_text(json.dumps({'drydock-agentmix':str(self.source)}))
-        self.install('--host','claude')
-        calls=self.calls()
-        new_install=calls.index(['claude','plugin','install','standmixer@drydock-standmixer','--scope','user'])
-        old_disable=calls.index(['claude','plugin','disable','agentmix@drydock-agentmix','--scope','user'])
-        self.assertLess(new_install,old_disable)
-        self.assertNotIn('drydock-agentmix',json.loads(state.read_text()))
-        self.assertFalse(any(x[:2] in (['claude','uninstall'],['codex','remove']) for x in calls))
 
-    def test_claude_same_source_legacy_alias_is_not_reused_on_interrupted_upgrade(self):
-        (self.bin/'codex').unlink()
-        self.install('--host','claude')
-        state=self.home/'claude-marketplace.json'
-        durable=str(self.support/'source')
-        state.write_text(json.dumps({'drydock-agentmix':durable}))
-        start=len(self.calls())
-        self.install('--host','claude')
-        self.assertEqual(json.loads(state.read_text()),{'drydock-standmixer':durable+'/Plugins/claude-agentmix'})
-        calls=self.calls()[start:]
-        add=['claude','plugin','marketplace','add',durable+'/Plugins/claude-agentmix']
-        installed=['claude','plugin','install','standmixer@drydock-standmixer','--scope','user']
-        disabled=['claude','plugin','disable','agentmix@drydock-agentmix','--scope','user']
-        self.assertLess(calls.index(add),calls.index(installed))
-        self.assertLess(calls.index(installed),calls.index(disabled))
 
     def test_claude_canonical_root_retarget_failure_restores_prior_registration(self):
         (self.bin/'codex').unlink()
@@ -625,99 +580,21 @@ exec "$BIN_DIR/standmixer" "$@"
                 self.assertEqual(json.loads(state.read_text()),previous)
                 del self.env[failure]
 
-    def test_failed_new_plugin_install_keeps_legacy_registration(self):
-        (self.bin/'codex').unlink()
-        state=self.home/'claude-marketplace.json'
-        state.write_text(json.dumps({'drydock-agentmix':str(self.source)}))
-        for failure in ['FIXTURE_PLUGIN_INSTALL_FAIL','FIXTURE_PLUGIN_UPDATE_FAIL']:
-            with self.subTest(failure=failure):
-                self.env[failure]='1'
-                self.call(self.source/'install.sh','--no-open',okay=False)
-                self.assertEqual(json.loads(state.read_text())['drydock-agentmix'],str(self.source))
-                self.assertFalse(any(x[1:4]==['plugin','disable','agentmix@drydock-agentmix'] for x in self.calls()))
-                self.assertIn(['claude','plugin','disable','standmixer@drydock-standmixer','--scope','user'],self.calls())
-                del self.env[failure]
 
-    def test_failed_legacy_disable_disables_new_claude_copy(self):
-        (self.bin/'codex').unlink()
-        state=self.home/'claude-marketplace.json'
-        state.write_text(json.dumps({'drydock-agentmix':str(self.source)}))
-        self.env['FIXTURE_LEGACY_DISABLE_FAIL']='1'
-        result=self.call(self.source/'install.sh','--no-open',okay=False)
-        self.assertIn('new StandMixer plugin was disabled',result.stderr)
-        self.assertIn(['claude','plugin','disable','standmixer@drydock-standmixer','--scope','user'],self.calls())
-        self.assertIn('drydock-agentmix',json.loads(state.read_text()))
 
-    def test_legacy_codex_and_foreign_plugins_stop_before_duplicate_install(self):
-        for source in [str(self.source),'/foreign/modified/source']:
-            with self.subTest(source=source):
-                (self.home/'codex-marketplace.json').write_text(json.dumps({'drydock-agentmix':source}))
-                result=self.call(self.source/'install.sh','--no-open',okay=False)
-                self.assertIn('was kept',result.stderr)
-                self.assertEqual(json.loads((self.home/'codex-marketplace.json').read_text()),{'drydock-agentmix':source})
-                self.assertFalse(any(x[1:3]==['plugin','add'] for x in self.calls()))
 
-    def seed_owned_legacy_codex(self):
-        self.install()
-        (self.home/'codex-marketplace.json').write_text(json.dumps({'drydock-agentmix':str(self.support/'source')}))
-        return len(self.calls())
 
-    def test_owned_exact_legacy_codex_migration_keeps_private_backup(self):
-        start=self.seed_owned_legacy_codex()
-        self.install()
-        calls=self.calls()[start:]
-        prepare=next(i for i,x in enumerate(calls) if x[1:3]==['--installer-codex-package','prepare'])
-        install=calls.index(['codex','plugin','add','standmixer@drydock-standmixer'])
-        check=next(i for i,x in enumerate(calls) if x[1:3]==['--installer-codex-package','check'])
-        remove=calls.index(['codex','plugin','remove','agentmix@drydock-agentmix'])
-        self.assertLess(prepare,install)
-        self.assertLess(install,check)
-        self.assertLess(check,remove)
-        self.assertTrue(any((self.support/'legacy-plugin-backups/codex-agentmix').glob('*/package/bin/AgentMixHelper')))
-        self.assertNotIn('drydock-agentmix',json.loads((self.home/'codex-marketplace.json').read_text()))
 
-    def test_modified_legacy_codex_cache_stops_before_new_copy(self):
-        start=self.seed_owned_legacy_codex()
-        self.env['FIXTURE_CODEX_CACHE_MODIFIED']='1'
-        self.call(self.source/'install.sh','--no-open',okay=False)
-        calls=self.calls()[start:]
-        self.assertNotIn(['codex','plugin','add','standmixer@drydock-standmixer'],calls)
-        self.assertFalse(any(x[1:3]==['plugin','remove'] for x in calls))
-        self.assertIn('drydock-agentmix',json.loads((self.home/'codex-marketplace.json').read_text()))
 
-    def test_legacy_codex_recheck_failure_removes_only_verified_new_copy(self):
-        start=self.seed_owned_legacy_codex()
-        self.env['FIXTURE_CODEX_CACHE_CHANGES']='1'
-        self.call(self.source/'install.sh','--no-open',okay=False)
-        calls=self.calls()[start:]
-        self.assertIn(['codex','plugin','remove','standmixer@drydock-standmixer'],calls)
-        self.assertNotIn(['codex','plugin','remove','agentmix@drydock-agentmix'],calls)
-        self.assertTrue(any(x[1:3]==['--installer-codex-package','canonical-check'] for x in calls))
-        self.assertIn('drydock-agentmix',json.loads((self.home/'codex-marketplace.json').read_text()))
 
-    def test_concurrent_new_codex_cache_edit_is_preserved_on_rollback(self):
-        start=self.seed_owned_legacy_codex()
-        self.env['FIXTURE_CODEX_CACHE_CHANGES']='1'
-        self.env['FIXTURE_NEW_CODEX_CACHE_MODIFIED']='1'
-        result=self.call(self.source/'install.sh','--no-open',okay=False)
-        self.assertIn('Both named caches',result.stderr)
-        self.assertFalse(any(x[1:3]==['plugin','remove'] for x in self.calls()[start:]))
-        self.assertIn('drydock-agentmix',json.loads((self.home/'codex-marketplace.json').read_text()))
 
-    def test_legacy_codex_native_remove_failure_rolls_back_new_copy(self):
-        start=self.seed_owned_legacy_codex()
-        self.env['FIXTURE_LEGACY_REMOVE_FAIL']='1'
-        self.call(self.source/'install.sh','--no-open',okay=False)
-        calls=self.calls()[start:]
-        self.assertIn(['codex','plugin','remove','standmixer@drydock-standmixer'],calls)
-        self.assertIn('drydock-agentmix',json.loads((self.home/'codex-marketplace.json').read_text()))
 
     def test_refuse_modified_source_launcher_and_redirect(self):
         self.install()
         self.launcher.write_text('unowned edit\n')
         self.assertIn('launcher was modified',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
         self.launcher.unlink()
-        (self.support/'source/dev/agentmix.sh').write_text('local source edit\n')
+        (self.support/'source/dev/standmixer.sh').write_text('local source edit\n')
         self.assertIn('local changes',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
         shutil.rmtree(self.support/'source')
         outside=self.root/'outside'; outside.mkdir()
@@ -725,15 +602,14 @@ exec "$BIN_DIR/standmixer" "$@"
         self.assertIn('redirected',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
         self.assertEqual(list(outside.iterdir()),[])
 
-    def test_ui_launcher_legacy_adoption_and_modification(self):
+    def test_ui_launcher_replacement_and_modification(self):
         self.install()
         launcher=self.support/'bin/open-codex-ui'
         receipt=self.support/'bin/.codex-ui-launcher.sha256'
-        receipt.unlink()
-        ui=self.source/'Plugins/codex-agentmix/ui/index.html'
+        ui=self.source/'Plugins/codex-standmixer/ui/index.html'
         ui.write_text('updated fixture assets')
         self.git('add','.')
-        self.git('-c','user.name=AgentMix Fixture','-c','user.email=fixture@example.invalid','commit','-qm','update embedded assets')
+        self.git('-c','user.name=StandMixer Fixture','-c','user.email=fixture@example.invalid','commit','-qm','update embedded assets')
         self.install()
         self.assertEqual(receipt.read_text().strip(),hashlib.sha256(launcher.read_bytes()).hexdigest())
         launcher.write_text(launcher.read_text()+'# user edit\n')
@@ -741,7 +617,7 @@ exec "$BIN_DIR/standmixer" "$@"
         self.assertIn('UI launcher was modified',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
         self.assertEqual(launcher.read_bytes(),modified)
         receipt.unlink()
-        self.assertIn('unowned embedded UI launcher',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
+        self.assertIn('unsafe or unowned file',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
         self.assertEqual(launcher.read_bytes(),modified)
 
     def test_ui_assets_modification_is_preserved(self):
@@ -753,39 +629,39 @@ exec "$BIN_DIR/standmixer" "$@"
 
     def test_legacy_bootstrap_cannot_redirect_plugin_or_canonical_runtime(self):
         # Exercise the real launch scripts with fake metadata-only helper payloads.
-        shutil.copyfile(PROJECT/'Plugins/codex-agentmix/scripts/open-ui.sh', self.source/'Plugins/codex-agentmix/scripts/open-ui.sh')
+        shutil.copyfile(PROJECT/'Plugins/codex-standmixer/scripts/open-ui.sh', self.source/'Plugins/codex-standmixer/scripts/open-ui.sh')
         self.git('add','.')
-        self.git('-c','user.name=AgentMix Fixture','-c','user.email=fixture@example.invalid','commit','-qm','real launcher fixture')
+        self.git('-c','user.name=StandMixer Fixture','-c','user.email=fixture@example.invalid','commit','-qm','real launcher fixture')
         self.install()
-        runtime = self.support/'runtime/AgentMixHelper'
+        runtime = self.support/'runtime/StandMixerHelper'
         payload = runtime.read_bytes()
         generation = next((self.support/'CodexUI').iterdir())
-        ui_payload = (generation/'bin/AgentMixHelper').read_bytes()
+        ui_payload = (generation/'bin/StandMixerHelper').read_bytes()
         # Simulate an already-shipped older cached bootstrap, which knows only bin.
         old = self.root/'older cached plugin/bootstrap.sh'
         old.parent.mkdir()
-        old.write_text('#!/bin/sh\nset -eu\nmkdir -p "$HOME/Library/Application Support/AgentMix/bin"\nprintf \'older engine\\n\' > "$HOME/Library/Application Support/AgentMix/bin/AgentMixHelper"\n')
+        old.write_text('#!/bin/sh\nset -eu\nmkdir -p "$HOME/Library/Application Support/StandMixer/bin"\nprintf \'older engine\\n\' > "$HOME/Library/Application Support/StandMixer/bin/StandMixerHelper"\n')
         self.call(old)
         self.assertEqual(runtime.read_bytes(), payload)
         self.assertIn(str(runtime), self.call(self.launcher,'status').stdout)
         for host in ['codex','claude']:
-            plugin = self.support/f'source/Plugins/{host}-agentmix'
+            plugin = self.support/f'source/Plugins/{host}-standmixer'
             if host == 'codex':
-                self.assertEqual(json.loads(self.call(plugin/'scripts/mcp.sh').stdout)['engine'],str(plugin/'bin/AgentMixHelper'))
+                self.assertEqual(json.loads(self.call(plugin/'scripts/mcp.sh').stdout)['engine'],str(plugin/'bin/StandMixerHelper'))
             else:
-                self.assertEqual(self.call(plugin/'scripts/bootstrap.sh').stdout.strip(),str(plugin/'bin/AgentMixHelper'))
-        for script, expected in [(self.support/'source/Plugins/codex-agentmix/scripts/open-ui.sh', self.support/'source/Plugins/codex-agentmix/bin/AgentMixHelper'), (self.support/'bin/open-codex-ui', generation/'bin/AgentMixHelper')]:
+                self.assertEqual(self.call(plugin/'scripts/bootstrap.sh').stdout.strip(),str(plugin/'bin/StandMixerHelper'))
+        for script, expected in [(self.support/'source/Plugins/codex-standmixer/scripts/open-ui.sh', self.support/'source/Plugins/codex-standmixer/bin/StandMixerHelper'), (self.support/'bin/open-codex-ui', generation/'bin/StandMixerHelper')]:
             session = json.loads(self.call(script).stdout)
             try: self.assertEqual(session['engine'],str(expected))
             finally:
                 try: os.kill(session['pid'],15)
                 except ProcessLookupError: pass
-        self.assertEqual((generation/'bin/AgentMixHelper').read_bytes(),ui_payload)
+        self.assertEqual((generation/'bin/StandMixerHelper').read_bytes(),ui_payload)
 
     def test_identical_ui_generation_reuses_helper_inode_and_mtime(self):
         self.install()
         generation=next((self.support/'CodexUI').iterdir())
-        files=[generation/p for p in ['ui/index.html','scripts/open-ui.sh','bin/AgentMixHelper']]
+        files=[generation/p for p in ['ui/index.html','scripts/open-ui.sh','bin/StandMixerHelper']]
         before={p:(p.stat().st_ino,p.stat().st_mtime_ns) for p in files}
         self.install()
         self.assertEqual(before,{p:(p.stat().st_ino,p.stat().st_mtime_ns) for p in files})
@@ -793,7 +669,7 @@ exec "$BIN_DIR/standmixer" "$@"
     def test_exact_execution_bad_ui_helper_gets_fresh_inode_without_asset_rewrite(self):
         self.install()
         generation=next((self.support/'CodexUI').iterdir())
-        helper=generation/'bin/AgentMixHelper'
+        helper=generation/'bin/StandMixerHelper'
         payload=helper.read_bytes()
         old_inode=helper.stat().st_ino
         assets=[generation/'ui/index.html',generation/'scripts/open-ui.sh']
@@ -810,25 +686,25 @@ exec "$BIN_DIR/standmixer" "$@"
 
     def test_modified_installed_ui_helper_is_preserved(self):
         self.install()
-        helper = next((self.support/'CodexUI').glob('*/bin/AgentMixHelper'))
+        helper = next((self.support/'CodexUI').glob('*/bin/StandMixerHelper'))
         helper.write_text('user helper edit\n')
         self.assertIn('UI assets were modified',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
         self.assertEqual(helper.read_text(),'user helper edit\n')
 
     def test_stale_bundled_bootstrap_cannot_rebind_installed_runtime(self):
         self.install()
-        runtime = self.support/'runtime/AgentMixHelper'
+        runtime = self.support/'runtime/StandMixerHelper'
         original = runtime.read_bytes()
         launcher = (self.support/'bin/open-codex-ui').read_bytes()
         self.env['FIXTURE_LEGACY_BOOTSTRAP'] = '1'
-        self.assertIn('older AgentMix helper',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
+        self.assertIn('older StandMixer helper',self.call(self.source/'install.sh','--no-open',okay=False).stderr)
         self.assertEqual(runtime.read_bytes(),original)
         self.assertEqual((self.support/'bin/open-codex-ui').read_bytes(),launcher)
 
     def test_local_app_build_update_and_failures(self):
         self.install()
         self.call(self.launcher,'install-mac','--no-open')
-        binary=self.app/'Contents/MacOS/AgentMix'
+        binary=self.app/'Contents/MacOS/StandMixer'
         first=binary.read_text()
         self.assertFalse(any(x[0]=='open' for x in self.calls()))
         self.assertFalse(any('--arch' in x for x in self.calls() if x[0]=='swift'))
@@ -856,7 +732,7 @@ exec "$BIN_DIR/standmixer" "$@"
         self.assertEqual(result.returncode,9)
         self.assertIn('fixture compiler error: source did not compile',result.stdout+result.stderr)
         self.assertIn('local Mac app build failed (exit 9)',result.stderr)
-        self.assertIn('"$HOME/Library/Application Support/AgentMix/bin/standmixer" install-mac --no-open',result.stderr)
+        self.assertIn('"$HOME/Library/Application Support/StandMixer/bin/standmixer" install-mac --no-open',result.stderr)
         logs=list((self.support/'InstallLogs').glob('install-mac.*'))
         self.assertEqual(len(logs),1)
         self.assertIn('fixture compiler error: source did not compile',logs[0].read_text())
@@ -873,7 +749,7 @@ exec "$BIN_DIR/standmixer" "$@"
     def test_mac_temporary_allocation_failure_releases_only_acquired_lock(self):
         self.install()
         mktemp=self.bin/'mktemp'
-        mktemp.write_text('#!/bin/sh\ncase "$*" in *agentmix-install-mac.XXXXXX*) printf "fixture temporary directory denied\\n" >&2; exit 73;; esac\nexec /usr/bin/mktemp "$@"\n')
+        mktemp.write_text('#!/bin/sh\ncase "$*" in *standmixer-install-mac.XXXXXX*) printf "fixture temporary directory denied\\n" >&2; exit 73;; esac\nexec /usr/bin/mktemp "$@"\n')
         mktemp.chmod(0o700)
         result=self.call(self.launcher,'install-mac','--no-open',okay=False)
         self.assertEqual(result.returncode,73)
@@ -917,11 +793,11 @@ exec "$BIN_DIR/standmixer" "$@"
         self.assertIn(str(compatible),result.stdout)
         app_builds=[x for x in self.calls() if x[:2]==['swift','build']]
         self.assertTrue(all('--sdk' in x and x[x.index('--sdk')+1]==str(compatible) for x in app_builds))
-        original=(self.app/'Contents/MacOS/AgentMix').read_bytes()
+        original=(self.app/'Contents/MacOS/StandMixer').read_bytes()
         self.env['SDKROOT']=str(current)
         result=self.call(self.launcher,'install-mac','--no-open',okay=False)
-        self.assertIn('cannot compile SwiftUI State and bindings',result.stderr)
-        self.assertEqual((self.app/'Contents/MacOS/AgentMix').read_bytes(),original)
+        self.assertIn('cannot compile SwiftUI State and bindings',result.stdout+result.stderr)
+        self.assertEqual((self.app/'Contents/MacOS/StandMixer').read_bytes(),original)
 
     def test_app_changes_during_build_are_preserved(self):
         self.install()
@@ -931,7 +807,7 @@ exec "$BIN_DIR/standmixer" "$@"
         del self.env['FIXTURE_APP_APPEARS']
         shutil.rmtree(self.app)
         self.call(self.launcher,'install-mac','--no-open')
-        binary=self.app/'Contents/MacOS/AgentMix'
+        binary=self.app/'Contents/MacOS/StandMixer'
         self.env['FIXTURE_RECEIPT_CHANGES']='1'
         self.assertIn('receipt changed during',self.call(self.launcher,'install-mac','--no-open',okay=False).stderr)
         self.assertEqual((self.support/'mac-app.receipt').read_text(),'user receipt edit')
@@ -945,8 +821,8 @@ exec "$BIN_DIR/standmixer" "$@"
         self.install()
         self.call(self.launcher,'install-mac','--no-open')
         resources=self.app/'Contents/Resources'
-        self.assertTrue((resources/'AgentMix.icns').is_file())
-        self.assertFalse((resources/'AgentMixLight.icns').exists())
+        self.assertTrue((resources/'StandMixer.icns').is_file())
+        self.assertFalse((resources/'StandMixerLight.icns').exists())
         icon_renders=[x for x in self.calls() if x[0]=='swift' and any(part.endswith('/make-icon.swift') for part in x)]
         self.assertEqual({x[-1] for x in icon_renders},{'dark'})
         builds=[x for x in self.calls() if x[:2]==['swift','build']]
@@ -958,19 +834,20 @@ exec "$BIN_DIR/standmixer" "$@"
             self.assertIn('-debug-prefix-map',command)
             self.assertIn('-no-serialize-debugging-options',command)
             self.assertIn(str(self.home)+'=/home/builder',command)
-            self.assertIn(str(self.support/'source')+'=/AgentMix',command)
-            self.assertIn('/AgentMix',command)
+            self.assertIn(str(self.support/'source')+'=/StandMixer',command)
+            self.assertIn('/StandMixer',command)
         strip_calls=[x for x in self.calls() if x[0]=='strip']
         self.assertTrue(strip_calls)
         self.assertTrue(all('-S' in x and '-x' in x for x in strip_calls))
-        original=(self.app/'Contents/MacOS/AgentMix').read_bytes()
+        original=(self.app/'Contents/MacOS/StandMixer').read_bytes()
         self.env['FIXTURE_LEAK_PATH']='1'
-        self.assertIn('still contains a local build path',self.call(self.launcher,'install-mac','--no-open',okay=False).stderr)
-        self.assertEqual((self.app/'Contents/MacOS/AgentMix').read_bytes(),original)
+        result=self.call(self.launcher,'install-mac','--no-open',okay=False)
+        self.assertIn('still contains a local build path',result.stdout+result.stderr)
+        self.assertEqual((self.app/'Contents/MacOS/StandMixer').read_bytes(),original)
         del self.env['FIXTURE_LEAK_PATH']
-        self.env['AGENTMIX_BUILD_WORK']=str(self.root/'helper-build')
+        self.env['STANDMIXER_BUILD_WORK']=str(self.root/'helper-build')
         self.call(self.source/'dev/build-claude-plugin.sh')
-        helper_builds=[x for x in self.calls() if x[:2]==['swift','build'] and '--product' in x and x[x.index('--product')+1]=='AgentMixHelper']
+        helper_builds=[x for x in self.calls() if x[:2]==['swift','build'] and '--product' in x and x[x.index('--product')+1]=='StandMixerHelper']
         self.assertTrue(helper_builds)
         for command in helper_builds:
             self.assertIn('--build-system',command)
@@ -978,7 +855,7 @@ exec "$BIN_DIR/standmixer" "$@"
             self.assertIn('-file-prefix-map',command)
             self.assertIn('-debug-prefix-map',command)
             self.assertIn('-no-serialize-debugging-options',command)
-            self.assertIn(str(self.source)+'=/AgentMix',command)
+            self.assertIn(str(self.source)+'=/StandMixer',command)
         self.assertTrue(any('--triple' in x and x[x.index('--triple')+1]=='arm64-apple-macosx14.0' for x in helper_builds))
         self.assertTrue(any('--triple' in x and x[x.index('--triple')+1]=='x86_64-apple-macosx14.0' for x in helper_builds))
         self.assertTrue(any(x[0]=='lipo' and '-verify_arch' in x for x in self.calls()))
@@ -988,16 +865,16 @@ exec "$BIN_DIR/standmixer" "$@"
                 self.assertIn('-S',command)
                 self.assertIn('-x',command)
                 self.assertTrue(any(x[0]=='codesign' and '--sign' in x for x in calls[index+1:]))
-        helper=self.source/'Plugins/claude-agentmix/bin/AgentMixHelper'
+        helper=self.source/'Plugins/claude-standmixer/bin/StandMixerHelper'
         original=helper.read_bytes()
         self.env['FIXTURE_LEAK_PATH']='1'
         self.assertIn('still contains a local build path',self.call(self.source/'dev/build-claude-plugin.sh',okay=False).stderr)
         self.assertEqual(helper.read_bytes(),original)
 
     def test_helper_build_publishes_fresh_inodes(self):
-        self.env['AGENTMIX_BUILD_WORK']=str(self.root/'helper-build')
+        self.env['STANDMIXER_BUILD_WORK']=str(self.root/'helper-build')
         (self.source/'dev/build-claude-plugin.sh').chmod(0o755)
-        helpers=[self.source/f'Plugins/{platform}-agentmix/bin/AgentMixHelper' for platform in ['claude','codex']]
+        helpers=[self.source/f'Plugins/{platform}-standmixer/bin/StandMixerHelper' for platform in ['claude','codex']]
         before=[helper.stat().st_ino for helper in helpers]
         self.call(self.source/'dev/build-codex-plugin.sh')
         self.assertEqual(helpers[0].read_bytes(),helpers[1].read_bytes())
@@ -1009,11 +886,11 @@ exec "$BIN_DIR/standmixer" "$@"
 
     def test_source_publish_rollback_and_shared_lock(self):
         self.install()
-        installed = self.support/'source/dev/agentmix.sh'
+        installed = self.support/'source/dev/standmixer.sh'
         original = installed.read_bytes()
-        (self.source/'dev/agentmix.sh').write_text((self.source/'dev/agentmix.sh').read_text()+'\n# updated checkout\n')
+        (self.source/'dev/standmixer.sh').write_text((self.source/'dev/standmixer.sh').read_text()+'\n# updated checkout\n')
         self.git('add','.')
-        self.git('-c','user.name=AgentMix Fixture','-c','user.email=fixture@example.invalid','commit','-qm','update source')
+        self.git('-c','user.name=StandMixer Fixture','-c','user.email=fixture@example.invalid','commit','-qm','update source')
         self.env['FIXTURE_SOURCE_PUBLISH_FAIL']='1'
         self.call(self.source/'install.sh','--no-open',okay=False)
         self.assertEqual(installed.read_bytes(),original)
@@ -1048,11 +925,11 @@ class Packages(unittest.TestCase):
                 target=source/relative
                 target.parent.mkdir(parents=True,exist_ok=True)
                 shutil.copyfile(PROJECT/relative,target)
-            for platform, archive in [('claude','AgentMix-Claude-plugin.zip'),('codex','AgentMix-Codex-plugin.zip')]:
-                plugin=source/f'Plugins/{platform}-agentmix'
+            for platform, archive in [('claude','StandMixer-Claude-plugin.zip'),('codex','StandMixer-Codex-plugin.zip')]:
+                plugin=source/f'Plugins/{platform}-standmixer'
                 plugin.mkdir(parents=True)
                 (plugin/'payload').write_text('standalone plugin fixture\n')
-                shipped_license=PROJECT/f'Plugins/{platform}-agentmix/LICENSE'
+                shipped_license=PROJECT/f'Plugins/{platform}-standmixer/LICENSE'
                 self.assertEqual(shipped_license.read_bytes(),(PROJECT/'LICENSE').read_bytes())
                 shutil.copyfile(shipped_license,plugin/'LICENSE')
                 subprocess.run(['/bin/sh',str(source/f'dev/package-{platform}-plugin.sh'),'--skip-build'],check=True,capture_output=True,timeout=30)
@@ -1061,9 +938,9 @@ class Packages(unittest.TestCase):
                     licenses=[name for name in names if name.count('/')==1 and name.endswith('/LICENSE')]
                     self.assertEqual(len(licenses),1,names)
                     self.assertEqual(packaged.read(licenses[0]),(PROJECT/'LICENSE').read_bytes())
-                    plugin_license=next(name for name in names if name.endswith(f'/Plugins/{platform}-agentmix/LICENSE'))
+                    plugin_license=next(name for name in names if name.endswith(f'/Plugins/{platform}-standmixer/LICENSE'))
                     self.assertEqual(packaged.read(plugin_license),(PROJECT/'LICENSE').read_bytes())
-                    self.assertTrue(any(name.endswith(f'/Plugins/{platform}-agentmix/payload') for name in names))
+                    self.assertTrue(any(name.endswith(f'/Plugins/{platform}-standmixer/payload') for name in names))
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

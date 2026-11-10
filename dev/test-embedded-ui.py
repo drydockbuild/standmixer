@@ -19,7 +19,7 @@ def main():
     parser.add_argument("helper", type=pathlib.Path)
     parser.add_argument("ui_root", type=pathlib.Path)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="agentmix-embedded-smoke-") as directory:
+    with tempfile.TemporaryDirectory(prefix="standmixer-embedded-smoke-") as directory:
         root = pathlib.Path(directory)
         home = root / "home"
         (home / ".local/bin").mkdir(parents=True)
@@ -48,7 +48,7 @@ def main():
         properties = action_tool["inputSchema"]["properties"]
         assert set(properties["action"]["enum"]) == {"state", "inspect", "saveDraft", "savePreset", "deletePreset", "preview",
                                                     "apply", "previewUninstall", "uninstall", "previewRestore", "restore",
-                                                    "installMac", "openWeb", "openMac", "checkAccounts"}
+                                                    "installMac", "openWeb", "openMac", "checkAccounts", "checkUpdates"}
         assert set(properties) == {"action", "configuration", "platforms", "previewID", "presetID", "name", "refresh"}
         assert responses[3]["result"]["contents"][0]["mimeType"] == "text/html;profile=mcp-app"
         assert responses[4]["result"]["structuredContent"]["ok"]

@@ -149,7 +149,7 @@ def native_loader(codex, marketplace, plugin_name, selector, package, env, cwd):
 
 
 def interactive_helper(package, settings, env, cwd):
-    command = [str(package / "bin/AgentMixHelper"), "--test-home", str(settings),
+    command = [str(package / "bin/StandMixerHelper"), "--test-home", str(settings),
                "--mcp", "--ui-root", str(package / "ui")]
     with RPC(command, env=env, cwd=cwd, mcp=True) as rpc:
         rpc.request("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
@@ -177,7 +177,7 @@ def main():
         parser.error("Install Codex or provide --codex")
     codex = Path(codex_path).resolve()
     repo = Path(__file__).resolve().parent.parent
-    source_package = repo / "Plugins/codex-agentmix"
+    source_package = repo / "Plugins/codex-standmixer"
     plugin_name = json.loads((source_package / "plugin.json").read_text())["name"]
     catalog = json.loads((repo / ".agents/plugins/marketplace.json").read_text())
     entries = [entry for entry in catalog["plugins"] if entry["name"] == plugin_name]
@@ -210,8 +210,8 @@ def main():
         package = marketplace / relative
         shutil.copytree(source_package, package)
         if args.helper:
-            shutil.copy2(args.helper.resolve(), package / "bin/AgentMixHelper")
-        assert os.access(package / "bin/AgentMixHelper", os.X_OK), "Build the helper or provide --helper"
+            shutil.copy2(args.helper.resolve(), package / "bin/StandMixerHelper")
+        assert os.access(package / "bin/StandMixerHelper", os.X_OK), "Build the helper or provide --helper"
         manifest = marketplace / ".agents/plugins/marketplace.json"
         manifest.parent.mkdir(parents=True)
         manifest.write_text(json.dumps(catalog))

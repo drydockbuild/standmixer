@@ -10,10 +10,10 @@ case "$CONFIGURATION" in
   *) echo "Usage: $0 [release|debug]" >&2; exit 2 ;;
 esac
 
-AGENTMIX_BUILD_CONFIGURATION=$CONFIGURATION
-OUTPUT_APP_PATH=${AGENTMIX_OUTPUT_APP:-"$PROJECT_DIR/../StandMixer.app"}
+STANDMIXER_BUILD_CONFIGURATION=$CONFIGURATION
+OUTPUT_APP_PATH=${STANDMIXER_OUTPUT_APP:-"$PROJECT_DIR/../StandMixer.app"}
 # Assemble and sign outside synced folders so Finder metadata cannot race signing.
-APP_WORK=$(mktemp -d "${TMPDIR:-/tmp}/agentmix-build-app.XXXXXX")
+APP_WORK=$(mktemp -d "${TMPDIR:-/tmp}/standmixer-build-app.XXXXXX")
 APP_PATH="$APP_WORK/StandMixer.app"
 trap 'rm -rf "$APP_WORK"' EXIT
 trap 'exit 129' HUP
@@ -22,12 +22,12 @@ trap 'exit 143' TERM
 CONTENTS="$APP_PATH/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
-WORK_DIR=${AGENTMIX_BUILD_WORK:-"$PROJECT_DIR/../../work"}
+WORK_DIR=${STANDMIXER_BUILD_WORK:-"$PROJECT_DIR/../../work"}
 mkdir -p "$WORK_DIR"
 WORK_DIR=$(CDPATH= cd -- "$WORK_DIR" && pwd)
 . "$SCRIPT_DIR/build-paths.sh"
-agentmix_select_app_sdk "$APP_WORK/sdk-probe"
-SCRATCH_PATH="$WORK_DIR/agentmix-build"
+standmixer_select_app_sdk "$APP_WORK/sdk-probe"
+SCRATCH_PATH="$WORK_DIR/standmixer-build"
 export CLANG_MODULE_CACHE_PATH="$WORK_DIR/clang-module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$WORK_DIR/swift-module-cache"
 
@@ -35,16 +35,16 @@ cd "$PROJECT_DIR"
 mkdir -p "$SCRATCH_PATH" "$CLANG_MODULE_CACHE_PATH" "$SWIFTPM_MODULECACHE_OVERRIDE"
 # A host build works with suitable Command Line Tools. Universal builds use
 # separate native SwiftPM targets and lipo, without requiring XCBuild.
-BUILD_ARCH=${AGENTMIX_BUILD_ARCH:-native}
+BUILD_ARCH=${STANDMIXER_BUILD_ARCH:-native}
 mkdir -p "$MACOS" "$RESOURCES"
-agentmix_build_executable AgentMix "$CONFIGURATION" "$BUILD_ARCH" "$SCRATCH_PATH" "$MACOS/AgentMix"
-if [ "$CONFIGURATION" = release ]; then agentmix_prepare_release_binary "$MACOS/AgentMix"; fi
+standmixer_build_executable StandMixer "$CONFIGURATION" "$BUILD_ARCH" "$SCRATCH_PATH" "$MACOS/StandMixer"
+if [ "$CONFIGURATION" = release ]; then standmixer_prepare_release_binary "$MACOS/StandMixer"; fi
 
 ICON_WORK="$APP_WORK/icon"
-ICONSET="$ICON_WORK/AgentMix.iconset"
+ICONSET="$ICON_WORK/StandMixer.iconset"
 mkdir -p "$ICONSET"
 env CLANG_MODULE_CACHE_PATH="$WORK_DIR/icon-module-cache" SWIFTPM_MODULECACHE_OVERRIDE="$WORK_DIR/icon-module-cache" swift -sdk "$SDKROOT" "$SCRIPT_DIR/make-icon.swift" "$ICONSET" dark
-iconutil -c icns "$ICONSET" -o "$RESOURCES/AgentMix.icns"
+iconutil -c icns "$ICONSET" -o "$RESOURCES/StandMixer.icns"
 
 cat > "$CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -52,15 +52,15 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleExecutable</key><string>AgentMix</string>
-  <key>CFBundleIconFile</key><string>AgentMix</string>
-  <key>CFBundleIdentifier</key><string>build.drydock.AgentMix</string>
+  <key>CFBundleExecutable</key><string>StandMixer</string>
+  <key>CFBundleIconFile</key><string>StandMixer</string>
+  <key>CFBundleIdentifier</key><string>build.drydock.StandMixer</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>StandMixer</string>
   <key>CFBundleDisplayName</key><string>StandMixer</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.4</string>
-  <key>CFBundleVersion</key><string>5</string>
+  <key>CFBundleShortVersionString</key><string>0.1.7</string>
+  <key>CFBundleVersion</key><string>10</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

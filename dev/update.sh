@@ -10,23 +10,23 @@ case "$#:${1:-}" in
   0:) ;;
   1:--mac) WITH_MAC=yes ;;
   1:--help|1:-h) printf 'Usage: standmixer update [--mac]\nUpdate installed plugins and source; --mac also builds the optional Mac app. Presets and model defaults are kept.\n'; exit 0 ;;
-  *) agentmix_fail 'Usage: standmixer update [--mac]' ;;
+  *) standmixer_fail 'Usage: standmixer update [--mac]' ;;
 esac
-agentmix_darwin
-SUPPORT_DIR="${HOME:?HOME must be set}/Library/Application Support/AgentMix"
+standmixer_darwin
+SUPPORT_DIR="${HOME:?HOME must be set}/Library/Application Support/StandMixer"
 SOURCE_DIR="$SUPPORT_DIR/source"
-[ "$PROJECT_DIR" = "$SOURCE_DIR" ] || agentmix_fail 'Use the installed StandMixer launcher to update. Run install.sh from your trusted checkout first.'
-agentmix_owned_directory "$SUPPORT_DIR"
-agentmix_owned_directory "$SOURCE_DIR"
-agentmix_owned_directory "$SOURCE_DIR/.git"
-agentmix_owned_file "$SOURCE_DIR/.agentmix-source"
-[ "$(cat "$SOURCE_DIR/.agentmix-source")" = 'AgentMix source checkout v1' ] || agentmix_fail 'The installed source is unrecognized; it was kept.'
+[ "$PROJECT_DIR" = "$SOURCE_DIR" ] || standmixer_fail 'Use the installed StandMixer launcher to update. Run install.sh from your trusted checkout first.'
+standmixer_owned_directory "$SUPPORT_DIR"
+standmixer_owned_directory "$SOURCE_DIR"
+standmixer_owned_directory "$SOURCE_DIR/.git"
+standmixer_owned_file "$SOURCE_DIR/.standmixer-source"
+[ "$(cat "$SOURCE_DIR/.standmixer-source")" = 'StandMixer source checkout v1' ] || standmixer_fail 'The installed source is unrecognized; it was kept.'
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
-agentmix_clean_checkout "$SOURCE_DIR"
-ORIGIN=$(git -C "$SOURCE_DIR" remote get-url origin) || agentmix_fail 'The installed source has no update origin. Rerun the official installer.'
+standmixer_clean_checkout "$SOURCE_DIR"
+ORIGIN=$(git -C "$SOURCE_DIR" remote get-url origin) || standmixer_fail 'The installed source has no update origin. Rerun the official installer.'
 case "$ORIGIN" in
   https://github.com/drydockbuild/standmixer|https://github.com/drydockbuild/standmixer.git|git@github.com:drydockbuild/standmixer.git|ssh://git@github.com/drydockbuild/standmixer.git) ;;
-  *) agentmix_fail 'This installation uses another source repository. Update that checkout manually; it was kept.' ;;
+  *) standmixer_fail 'This installation uses another source repository. Update that checkout manually; it was kept.' ;;
 esac
 CURRENT=$(git -C "$SOURCE_DIR" rev-parse HEAD)
 STAGE=

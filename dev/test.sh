@@ -6,7 +6,7 @@ PROJECT_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 WORK_DIR="$PROJECT_DIR/../../work"
 mkdir -p "$WORK_DIR"
 WORK_DIR=$(CDPATH= cd -- "$WORK_DIR" && pwd)
-SCRATCH_PATH="$WORK_DIR/agentmix-test"
+SCRATCH_PATH="$WORK_DIR/standmixer-test"
 export CLANG_MODULE_CACHE_PATH="$WORK_DIR/clang-module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$WORK_DIR/swift-module-cache"
 

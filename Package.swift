@@ -2,19 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentMix",
+    name: "StandMixer",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "AgentMix", targets: ["AgentMixApp"]),
-        .executable(name: "AgentMixHelper", targets: ["AgentMixHelper"]),
-        .library(name: "AgentMixCore", targets: ["AgentMixCore"]),
+        .executable(name: "StandMixer", targets: ["StandMixerApp"]),
+        .executable(name: "StandMixerHelper", targets: ["StandMixerHelper"]),
+        .library(name: "StandMixerCore", targets: ["StandMixerCore"]),
     ],
     targets: [
-        .target(name: "AgentMixCore"),
-        .executableTarget(name: "AgentMixApp", dependencies: ["AgentMixCore"]),
-        .executableTarget(name: "AgentMixHelper", dependencies: ["AgentMixCore"]),
-        .testTarget(name: "AgentMixCoreTests", dependencies: ["AgentMixCore"]),
-        .testTarget(name: "AgentMixHelperTests", dependencies: ["AgentMixHelper", "AgentMixCore"]),
+        .target(name: "StandMixerCore"),
+        .executableTarget(name: "StandMixerApp", dependencies: ["StandMixerCore"]),
+        .executableTarget(name: "StandMixerHelper", dependencies: ["StandMixerCore"]),
+        .testTarget(name: "StandMixerCoreTests", dependencies: ["StandMixerCore"]),
+        .testTarget(name: "StandMixerHelperTests", dependencies: ["StandMixerHelper", "StandMixerCore"]),
     ],
     swiftLanguageModes: [.v5]
 )

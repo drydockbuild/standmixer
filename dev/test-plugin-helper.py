@@ -10,13 +10,13 @@ import tempfile
 import tomllib
 
 project = Path(__file__).resolve().parent.parent
-engine = project / "Plugins/claude-agentmix/bin/AgentMixHelper"
-bootstrap = project / "Plugins/claude-agentmix/scripts/bootstrap.sh"
+engine = project / "Plugins/claude-standmixer/bin/StandMixerHelper"
+bootstrap = project / "Plugins/claude-standmixer/scripts/bootstrap.sh"
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--helper', type=Path, default=engine)
 engine = parser.parse_args().helper.resolve()
 
-with tempfile.TemporaryDirectory(prefix="agentmix-plugin-e2e-", dir="/private/tmp") as temporary:
+with tempfile.TemporaryDirectory(prefix="standmixer-plugin-e2e-", dir="/private/tmp") as temporary:
     home = Path(temporary) / "home"
     for platform in ["codex", "claude"]:
         cli = home / ".local/bin" / platform
@@ -41,10 +41,10 @@ with tempfile.TemporaryDirectory(prefix="agentmix-plugin-e2e-", dir="/private/tm
     state = initial["state"]
     assert set(state).issubset({"configuration", "hasSavedDraft", "previousDraft", "enabledPlatforms", "preferredPlatforms",
                                "availablePlatforms", "presets", "catalog", "connections", "installation", "savedPresets",
-                               "nativeSettings", "inspection", "canRestore", "installedMac", "notes"})
+                               "nativeSettings", "inspection", "canRestore", "installedMac", "canCheckUpdates", "releaseVersion", "notes"})
     assert set(state["availablePlatforms"]) == {"codex", "claude"}
     assert not state["installation"]["hasInstallation"]
-    assert not (home / "Library/Application Support/AgentMix").exists()
+    assert not (home / "Library/Application Support/StandMixer").exists()
     assert call("unsupportedAction")["error"]["code"] == "invalidRequest"
     inspection = call("inspect")["inspection"]
     assert all(report["status"] == "failed" and "Fixture inspection is disabled" in report["error"] for report in inspection["reports"])
@@ -87,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix="agentmix-plugin-e2e-", dir="/private/tm
         return subprocess.run([str(engine), "--test-home", str(home), "--bootstrap"], capture_output=True, text=True, timeout=30)
 
     resolved = subprocess.run(["/bin/sh", str(bootstrap)], capture_output=True, text=True, timeout=30, check=True)
-    assert Path(resolved.stdout.strip()) == project / "Plugins/claude-agentmix/bin/AgentMixHelper"
+    assert Path(resolved.stdout.strip()) == project / "Plugins/claude-standmixer/bin/StandMixerHelper"
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: install(), range(4)))
@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix="agentmix-plugin-e2e-", dir="/private/tm
     assert installed.parent.name == 'runtime'
     receipt = installed.parent / ".engine.sha256"
     assert installed.read_bytes() == engine.read_bytes()
-    legacy = installed.parent.parent / 'bin/AgentMixHelper'
+    legacy = installed.parent.parent / 'bin/StandMixerHelper'
     legacy.parent.mkdir(exist_ok=True)
     legacy.write_text('older plugin engine\n')
     assert install().returncode == 0

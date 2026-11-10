@@ -8,7 +8,7 @@
       "name": "standmixer",
       "source": {
         "source": "local",
-        "path": "./Plugins/codex-agentmix"
+        "path": "./Plugins/codex-standmixer"
       },
       "policy": {
         "installation": "AVAILABLE",

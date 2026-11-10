@@ -19,7 +19,7 @@ func color(_ hex: UInt32, alpha: CGFloat = 1) -> NSColor {
     )
 }
 
-// StandMixer master geometry matches brand/standmixer-icon.svg and AgentMixBrandMark.
+// StandMixer master geometry matches brand/standmixer-icon.svg and StandMixerBrandMark.
 let size = 1024
 guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: size, pixelsHigh: size,
     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,

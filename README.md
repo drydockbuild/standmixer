@@ -43,24 +43,32 @@ The app builds locally, is ad-hoc signed, and installs in `~/Applications/StandM
 Run `/standmixer update` in Claude Code or `$standmixer update` in Codex. Add `--mac` to also rebuild the optional Mac app. In Terminal:
 
 ```sh
-"$HOME/Library/Application Support/AgentMix/bin/standmixer" update
+"$HOME/Library/Application Support/StandMixer/bin/standmixer" update
 ```
 
-Opening a Claude/Codex panel checks GitHub for a newer version at most once per day, using a shared local cache. Checks use no models or credentials, send no settings or project data, and stay quiet offline. Installing updates remains explicit; there is no background polling. Older installations without the update command need one installer refresh:
+Opening a Claude/Codex panel checks GitHub for a newer version at most once per day, using a shared local cache. Checks use no models or credentials, send no settings or project data, and stay quiet offline. Installing updates remains explicit; there is no background polling. **Sources** (Codex/web) or **Connections** (Claude) shows the installed version, last check, and **Check now** to bypass the daily cache.
+
+Existing installations with an update command can use it. Older installations without it (including 0.1.0) need an installer refresh:
 
 ```sh
 standmixer_update="$(mktemp -d)" && git clone --depth 1 https://github.com/drydockbuild/standmixer.git "$standmixer_update/standmixer" && /bin/sh "$standmixer_update/standmixer/install.sh"
 ```
 
-Updates preserve presets, drafts, backups, and modified or unowned files. New code does not automatically apply a different routing preset.
+The installer retires a verified installation using the old data layout into a private recovery folder and retains saved presets and drafts. It removes the old integration using its recorded baseline, then installs under the new StandMixer paths. Reload plugins and review and apply your preset once. If you used the optional Mac app, rebuild it with `install-mac`. Modified or unrecognized files are preserved; conflicts stop cleanup.
+
+Native model defaults stay unchanged when the old integration is retired. Its original ownership records remain in the recovery copy.
+
+Subsequent updates preserve presets, drafts, backups, and modified or unowned files. New code does not automatically apply a different routing preset.
 
 `/standmixer uninstall` or **Sources → Remove StandMixer settings** previews restoration of the original managed settings. The Mac app offers **Settings → Uninstall StandMixer**. Later user edits are preserved. Remove the plugin separately in the host's plugin manager; saved presets, recovery data, source, and the optional app remain.
+
+The [upgrade test plan](docs/upgrade-test.md) covers the 0.1.4 baseline, updating to 0.1.7, and checking a repeated update.
 
 The installer prints the full Terminal command path without changing your shell's PATH. The launcher also accepts `status`, `fast`, `optimized`, `high`, and `uninstall`; routing changes preview first and require `--yes`.
 
 ## Local data
 
-Data remains in `~/Library/Application Support/AgentMix` for compatibility with existing installations. `CODEX_HOME` and `CLAUDE_CONFIG_DIR` are respected. StandMixer changes only managed instructions, worker definitions, control skills, and explicitly pinned model fields. It preserves unrelated settings and refuses redirected or conflicting files.
+Data is stored in `~/Library/Application Support/StandMixer`. `CODEX_HOME` and `CLAUDE_CONFIG_DIR` are respected. StandMixer changes only managed instructions, worker definitions, control skills, and explicitly pinned model fields. It preserves unrelated settings and refuses redirected or conflicting files.
 
 Discovery is bounded to known tool locations and native project metadata. Worker recipes preserve existing permissions: workspace writes for authorized implementation, read-only for review. StandMixer does not weaken global sandbox settings or Gatekeeper.
 
@@ -68,10 +76,12 @@ Discovery is bounded to known tool locations and native project metadata. Worker
 
 The [website](website/index.html), screenshots, and [link-preview artwork](website/artwork/social-preview.html) are included in `website/`.
 
+The [worktree sandbox check](docs/worktree-sandbox.md) exercises real Git operations under Codex permissions without model calls.
+
 ```sh
 ./dev/test.sh
-node --test Plugins/codex-agentmix/tests/ui.test.cjs
-claude plugin test Plugins/claude-agentmix
+node --test Plugins/codex-standmixer/tests/ui.test.cjs
+claude plugin test Plugins/claude-standmixer
 python3 dev/test-installers.py
 python3 dev/test-codex-native.py
 ./dev/build-codex-plugin.sh

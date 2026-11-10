@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "standmixer",
-      "source": "./Plugins/claude-agentmix",
+      "source": "./Plugins/claude-standmixer",
       "description": "Model presets for Claude Code and Codex, with a native settings pane."
     }
   ]
