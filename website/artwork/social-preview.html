@@ -16,7 +16,7 @@ h1{font-family:Palatino,"Palatino Linotype","Iowan Old Style",Georgia,serif;font
 .grid{display:grid;grid-template-columns:266px 1fr 1fr}.cell{padding:0 23px;display:flex;align-items:center;min-width:0}.cell+.cell{border-left:1px solid #2a3948}
 .table-head{height:55px;background:#182536;font-size:22px;font-weight:600}.table-head .task{font-size:18px;font-weight:500;color:#9caeb5}.table-head .codex{background:#8caff009}.table-head .claude{background:#c49cde0a}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:11px;background:#8caff0}.claude .dot{background:#c49cde}
-.row{height:96px;border-top:1px solid #2a3948}.row.visual{height:116px}.row:nth-child(3){background:#ffffff02}
+.row{height:96px;border-top:1px solid #2a3948}.row.visual{height:96px}.row:last-child{height:116px}.row:nth-child(3){background:#ffffff02}
 .task-name{font-size:21px;font-weight:550;letter-spacing:-.2px;gap:12px}.task-name svg{width:25px;height:25px;flex:none;fill:none;stroke:#90b2c4;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .models{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:8px}.model{display:flex;align-items:center;gap:9px;min-height:30px;font-size:25px;font-weight:550;letter-spacing:-.35px;white-space:nowrap}.strong{color:#e49aa9}.sol{color:#e3a06b}
 .bars{display:inline-flex;align-items:flex-end;gap:3px;width:25px;height:22px;flex:none}.bars i{display:block;width:4px;border-radius:1px;background:currentColor}.bars i:nth-child(1){height:7px}.bars i:nth-child(2){height:12px}.bars i:nth-child(3){height:17px}.bars i:nth-child(4){height:22px}.sol .bars i:last-child{background:#3a4555}
@@ -32,8 +32,8 @@ h1{font-family:Palatino,"Palatino Linotype","Iowan Old Style",Georgia,serif;font
     <div class="grid table-head"><div class="cell task">Task</div><div class="cell codex"><span class="dot"></span>Codex</div><div class="cell claude"><span class="dot"></span>Claude Code</div></div>
     <div class="grid row visual">
       <div class="cell task-name"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M2 9h20M8 9v11m-3-13h.1"/><rect x="11" y="12" width="8" height="5" rx="1"/></svg>Visual</div>
-      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Astra 6</div><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5 <span class="via claude">via Claude</span></div></div>
-      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5</div><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Fable 5.1</div></div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Astra 6</div></div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Fable 5.2</div></div>
     </div>
     <div class="grid row">
       <div class="cell task-name"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 6-5 6 5 6m8-12 5 6-5 6M14 4l-4 16"/></svg>Implementation</div>
@@ -42,8 +42,8 @@ h1{font-family:Palatino,"Palatino Linotype","Iowan Old Style",Georgia,serif;font
     </div>
     <div class="grid row">
       <div class="cell task-name"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 3-1 8q-1 6-8 9-7-3-8-9L3 5Zm-5 10 3.5 3.5L17 8.5"/></svg>Review &amp; Security</div>
-      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5 <span class="via claude">via Claude</span></div></div>
-      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5</div></div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Astra 6</div><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Fable 5.2 <span class="via claude">via Claude</span></div></div>
+      <div class="cell models"><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Opus 5.5</div><div class="model strong"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span> Fable 5.2</div></div>
     </div>
   </section>
   <div class="footer"><span>Free &amp; open source <span class="origin">· From Drydock Labs</span></span><span class="url">standmixer.dev</span></div>
