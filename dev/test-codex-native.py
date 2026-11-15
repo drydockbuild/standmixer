@@ -6,6 +6,7 @@ plugin cache files, and settings fixtures live in a temporary directory.
 """
 import argparse
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -137,13 +138,15 @@ def native_loader(codex, marketplace, plugin_name, selector, package, env, cwd):
         assert server["serverInfo"]["icons"] == icons, "Server icon fallback differs from the entrypoint"
         opening = tools["open_standmixer"]["_meta"]
         uri = opening["ui"]["resourceUri"]
-        assert uri == "ui://standmixer/settings.html"
+        bundled_html = (package / "ui/index.html").read_bytes()
+        assert uri == "ui://standmixer/settings-" + hashlib.sha256(bundled_html).hexdigest() + ".html"
         assert set(opening["ui"]["visibility"]) == {"model", "app"}
         assert {entry["type"] for entry in opening["openai/ui"]["entrypoints"]} == {"thread", "global"}
         assert tools["standmixer_action"]["_meta"]["ui"]["visibility"] == ["app"]
         contents = rpc.request("mcpServer/resource/read", {"server": server["name"], "uri": uri})["contents"]
         assert len(contents) == 1 and contents[0]["mimeType"] == "text/html;profile=mcp-app"
-        assert contents[0]["text"].encode() == (package / "ui/index.html").read_bytes(), "Native HTML differs from bundled HTML"
+        assert contents[0]["uri"] == uri
+        assert contents[0]["text"].encode() == bundled_html, "Native HTML differs from bundled HTML"
         assert rpc.request("thread/loaded/list", {})["data"] == [], "The test must not create chats"
     print("Native Codex: passed (installed package, stdio tools, UI entrypoints, exact HTML; no chats)")
 
@@ -155,9 +158,17 @@ def interactive_helper(package, settings, env, cwd):
         rpc.request("initialize", {"protocolVersion": "2025-11-25", "capabilities": {},
                                    "clientInfo": {"name": "standmixer_fixture", "version": "1"}}, timeout=5)
         rpc.send("notifications/initialized")
+        tools = rpc.request("tools/list", timeout=5)["tools"]
+        opening = next(tool for tool in tools if tool["name"] == "open_standmixer")
+        uri = opening["_meta"]["ui"]["resourceUri"]
+        resources = rpc.request("resources/list", timeout=5)["resources"]
+        assert [resource["uri"] for resource in resources] == [uri]
+        contents = rpc.request("resources/read", {"uri": uri}, timeout=5)["contents"]
+        assert contents[0]["uri"] == uri
+        assert contents[0]["text"].encode() == (package / "ui/index.html").read_bytes()
         opened = rpc.request("tools/call", {"name": "open_standmixer", "arguments": {}}, timeout=5)
         assert opened["structuredContent"]["ok"] and not opened.get("isError")
-        assert opened["_meta"]["ui"]["resourceUri"] == "ui://standmixer/settings.html"
+        assert opened["_meta"]["ui"]["resourceUri"] == uri
         response = rpc.request("tools/call", {"name": "standmixer_action", "arguments": {"action": "state"}}, timeout=5)
         assert response["structuredContent"]["ok"] and not response.get("isError")
         state = response["structuredContent"]["state"]

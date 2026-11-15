@@ -71,15 +71,14 @@ struct StandMixerHelper {
                              detail: "Isolated fixture CLI metadata; no executable is launched.", isInstalled: exists)
             }
         }
-        let fixtureReader: (@Sendable (AgentPlatform) async throws -> AgentImportProposal)?
         let fixtureInstaller: (@Sendable () async throws -> ApplyResult)?
-        if testHome == nil { fixtureReader = nil; fixtureInstaller = nil }
+        if testHome == nil { fixtureInstaller = nil }
         else {
-            fixtureReader = { _ in throw AgentImportError.failed("Fixture inspection is disabled. No observer model was started.") }
             fixtureInstaller = { throw StandMixerMacInstallerError.fixtureDisabled }
         }
         let interface = StandMixerModInterface(service: service, connections: fixtureConnections,
-                                            inspectionReader: fixtureReader, macInstaller: fixtureInstaller)
+                                            macInstaller: fixtureInstaller,
+                                            allowsClaudeConnection: arguments == ["--mcp"] && testHome == nil)
         if arguments == ["--mcp"] || arguments == ["--serve-ui"] {
             do {
                 let assets = try StandMixerUIAssets.resolve(explicitPath: uiRoot, executable: executable)
@@ -89,10 +88,9 @@ struct StandMixerHelper {
                     signal(SIGTERM, SIG_IGN); signal(SIGINT, SIG_IGN)
                     let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
                     let interruption = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
-                    // Cancellation invokes the observer's synchronous owned
-                    // process-group cleanup before this helper terminates.
-                    termination.setEventHandler { stdio.cancelAll(); exit(0) }
-                    interruption.setEventHandler { stdio.cancelAll(); exit(0) }
+                    // Cancel outstanding panel operations before this helper terminates.
+                    termination.setEventHandler { Task { await stdio.cancelAllAndWait(); exit(0) } }
+                    interruption.setEventHandler { Task { await stdio.cancelAllAndWait(); exit(0) } }
                     termination.resume(); interruption.resume()
                     try await stdio.run()
                     termination.cancel(); interruption.cancel()
@@ -117,9 +115,15 @@ struct StandMixerHelper {
         }
         guard uiRoot == nil else { writeFailure("--ui-root is used only with --mcp or --serve-ui."); exit(2) }
         if arguments.first == "--standmixer" {
+            if arguments.dropFirst().first == "run-claude" {
+                exit(await StandMixerClaudeWorker.run(arguments: Array(arguments.dropFirst(2)), service: service))
+            }
             let available = fixtureConnections.map { Set($0.filter(\.isInstalled).map(\.platform)) }
-            let response = await StandMixerCommandInterface.run(arguments: Array(arguments.dropFirst()), service: service, availablePlatforms: available)
+            let response = await StandMixerCommandHost.run(arguments: Array(arguments.dropFirst()), service: service, availablePlatforms: available)
             if response.openSettings { print("Open the StandMixer panel with /standmixer in Claude Code. Use the installed StandMixer Mac app for its own settings.") }
+            else if response.exitCode != 0 && arguments.dropFirst().first == "resolve-cli" {
+                fputs(response.text + "\n", stderr)
+            }
             else { print(response.text) }
             exit(response.exitCode)
         }

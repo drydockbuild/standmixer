@@ -29,6 +29,9 @@ final class AccountStatusTests: XCTestCase {
         XCTAssertEqual(signedOut.status, .signedOut)
         XCTAssertNil(signedOut.email)
         XCTAssertNil(signedOut.subscription)
+        XCTAssertTrue(signedOut.detail.contains("outside Claude Desktop"))
+        let ultra = StandMixerAccountChecker.parse(capture(#"{"loggedIn":true,"subscriptionType":"ultra"}"#), platform: .claude, cliPath: "/fixture/claude")
+        XCTAssertEqual(ultra.subscription, "ultra")
         let apiKey = StandMixerAccountChecker.parse(capture(#"{"loggedIn":true,"authMethod":"api_key","email":"stale@example.invalid","subscriptionType":"max"}"#), platform: .claude, cliPath: "/fixture/claude")
         XCTAssertEqual(apiKey.status, .signedIn)
         XCTAssertNil(apiKey.email)
@@ -84,7 +87,8 @@ final class AccountStatusTests: XCTestCase {
                 await calls.started(platform, arguments)
                 XCTAssertEqual(executable.path, "/fixture/" + platform.rawValue)
                 XCTAssertEqual(environment["HOME"], self.service.home.path)
-                XCTAssertEqual(timeout, 10)
+                XCTAssertGreaterThan(timeout, 9)
+                XCTAssertLessThanOrEqual(timeout, 10)
                 XCTAssertTrue(FileManager.default.fileExists(atPath: cwd.path))
                 if platform == .codex { throw AgentImportError.timedOut(timeout) }
                 return self.capture(#"{"loggedIn":false}"#, exit: 1)
@@ -129,5 +133,49 @@ final class AccountStatusTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: heartbeat).count, count)
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.home.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.applicationSupport.path))
+    }
+
+    private func slowDiscoveryService(heartbeat: URL) throws -> IntegrationService {
+        let home = root.appendingPathComponent("slow-home")
+        let executable = home.appendingPathComponent(".local/bin/claude")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let child = "trap '' TERM; while :; do /usr/bin/printf x >> '\(heartbeat.path)'; /bin/sleep 0.05; done"
+        let escaped = child.replacingOccurrences(of: "'", with: "'\\''")
+        try "#!/bin/sh\n[ \"$1\" = '--version' ] || exit 90\n/bin/sh -c '\(escaped)' &\nwait\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let discovery = CLIDiscovery(home: home, environment: [:], applicationDirectories: [], commonDirectories: [],
+                                     activeExecutables: { [] }, probeTimeout: 2)
+        return IntegrationService(discovery: discovery, applicationSupport: root.appendingPathComponent("slow-support"))
+    }
+
+    func testSharedDeadlineStopsSlowVersionProbeAndDescendantsWithoutExecutableOverride() async throws {
+        let heartbeat = root.appendingPathComponent("version-heartbeat")
+        let fixture = try slowDiscoveryService(heartbeat: heartbeat)
+        let start = ProcessInfo.processInfo.systemUptime
+        let report = try await StandMixerAccountChecker.check(service: fixture, executables: nil, runner: nil, timeout: 0.25)
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        XCTAssertTrue(report.providers.first { $0.platform == .claude }?.detail.contains("time budget") == true)
+        XCTAssertEqual(report.providers.first { $0.platform == .claude }?.status, .unknown)
+        let count = try Data(contentsOf: heartbeat).count
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(try Data(contentsOf: heartbeat).count, count)
+    }
+
+    func testCancellationStopsSlowVersionProbeAndDescendantsWithoutExecutableOverride() async throws {
+        let heartbeat = root.appendingPathComponent("cancel-version-heartbeat")
+        let fixture = try slowDiscoveryService(heartbeat: heartbeat)
+        let operation = Task { try await StandMixerAccountChecker.check(service: fixture) }
+        for _ in 0..<100 {
+            if FileManager.default.fileExists(atPath: heartbeat.path) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let start = ProcessInfo.processInfo.systemUptime
+        operation.cancel()
+        do { _ = try await operation.value; XCTFail("Expected cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+        let count = try Data(contentsOf: heartbeat).count
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(try Data(contentsOf: heartbeat).count, count)
     }
 }

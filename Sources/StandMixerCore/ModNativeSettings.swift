@@ -12,7 +12,7 @@ public struct StandMixerModNativeSettings: Codable, Sendable {
     public var status: String
     public var detail: String
 
-    static func capture(platform: AgentPlatform, service: IntegrationService) -> Self {
+    public static func capture(platform: AgentPlatform, service: IntegrationService) -> Self {
         let source = (platform == .codex ? service.codexHome : service.claudeHome)
             .appendingPathComponent(platform == .codex ? "config.toml" : "settings.json")
         let snapshot = AgentImportSnapshot.captureGlobalDefaults(platform: platform,

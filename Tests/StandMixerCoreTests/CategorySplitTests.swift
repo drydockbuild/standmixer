@@ -13,69 +13,80 @@ final class CategorySplitTests: XCTestCase {
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: root) }
 
-    func testRecipesSeparateAlgorithmsFromReviewForBothAndSingleHarnesses() throws {
-        XCTAssertEqual(WorkCategory.allCases.map(\.rawValue), ["coordinator", "planning", "ui", "implementation", "algorithms", "review", "mechanical"])
-        for available in [Set<AgentPlatform>([.codex]), [.claude], [.codex, .claude]] {
-            for preset in StandMixerPreset.allCases {
-                let configuration = StandMixerConfiguration.preset(preset, availablePlatforms: available)
-                XCTAssertNoThrow(try service.preview(configuration: configuration, platforms: available))
-                for platform in available {
-                    let profile = try XCTUnwrap(configuration.profile(for: platform))
-                    let algorithms = try XCTUnwrap(profile.route(for: .algorithms))
-                    let review = try XCTUnwrap(profile.route(for: .review))
-                    XCTAssertEqual(algorithms.effort, .auto)
-                    XCTAssertEqual(review.effort, .auto)
-                    for route in [algorithms, review] {
-                        let team = [route.modelID] + route.additionalAgents.map(\.modelID)
-                        XCTAssertEqual(Set(team).count, team.count)
-                        XCTAssertEqual(route.resultMode, .coordinator)
-                        XCTAssertNil(route.judgeModelID)
-                    }
-                    if preset == .optimized {
-                        XCTAssertEqual(algorithms.modelID, platform == .codex ? "gpt-6-astra" : "claude-opus-5-5")
-                        XCTAssertEqual(review.modelID, available == [.codex] ? "gpt-6-astra" : "claude-opus-5-5")
-                        XCTAssertTrue(algorithms.additionalAgents.isEmpty)
-                        XCTAssertEqual(algorithms.teamMode, .leadReview)
-                        XCTAssertTrue(review.additionalAgents.isEmpty)
-                    } else if preset == .fast {
-                        XCTAssertEqual(algorithms.modelID, platform == .codex ? "gpt-6.1-terra" : "claude-sonnet-5-5")
-                        let reviewer = available.count == 2
-                            ? (platform == .codex ? "claude-opus-5-5" : "gpt-6.1-sol")
-                            : (platform == .codex ? "gpt-6.1-sol" : "claude-opus-5-5")
-                        XCTAssertEqual(review.modelID, reviewer)
-                        XCTAssertTrue(algorithms.additionalAgents.isEmpty)
-                        XCTAssertTrue(review.additionalAgents.isEmpty)
-                    } else {
-                        XCTAssertEqual(algorithms.additionalAgents.count, available.count == 2 ? 2 : 1)
-                        XCTAssertEqual(review.additionalAgents.count, 1)
-                        XCTAssertEqual(algorithms.modelID, platform == .codex ? "gpt-6-astra" : "claude-fable-5-1")
-                        XCTAssertEqual(review.modelID, platform == .codex && available.count == 1 ? "gpt-6-astra" : "claude-opus-5-5")
-                    }
-                    if available.count == 1 {
-                        let catalog = ModelSpec.catalog()
-                        for route in [algorithms, review] {
-                            let ids = [route.modelID] + route.additionalAgents.map(\.modelID)
-                            XCTAssertTrue(ids.allSatisfy { id in catalog.first { $0.id == id }?.platform == platform })
-                        }
-                    }
-                }
-            }
-        }
+    func testCurrentHierarchyHasSixWorkGroupsAndRetainsLegacyAlgorithmRoute() {
+        XCTAssertEqual(WorkCategory.topLevelCases, [.planning, .ui, .implementation, .review, .research, .mechanical])
+        XCTAssertEqual(WorkCategory.coordinator.children, [])
+        XCTAssertNil(WorkCategory.coordinator.parent)
+        XCTAssertEqual(WorkCategory.planning.children, [.quickIdeas, .algorithms])
+        XCTAssertEqual(WorkCategory.ui.children, [.uiImplementation, .uiReview])
+        XCTAssertEqual(WorkCategory.implementation.children, [.routineCoding, .debugging])
+        XCTAssertEqual(WorkCategory.review.children, [.developmentSecurity, .securityReview])
+        XCTAssertEqual(WorkCategory.research.children, [.draftingEditing, .deepAnalysis])
+        XCTAssertEqual(WorkCategory.mechanical.children, [.computerUse])
+        XCTAssertEqual(WorkCategory.topLevelCases.flatMap { [$0] + $0.children }, WorkCategory.allCases.dropFirst().map { $0 })
     }
 
-    func testFastUsesSingleWorkersWithApprovedSpecialistsForEveryAvailability() throws {
-        for available in [Set<AgentPlatform>([.codex]), [.claude], [.codex, .claude]] {
-            let configuration = StandMixerConfiguration.preset(.fast, availablePlatforms: available)
-            for profile in configuration.profiles where available.contains(profile.platform) {
-                XCTAssertEqual(Set(profile.routes.filter { $0.category != .coordinator }.map(\.modelID)).count, available.count == 2 ? 4 : 3)
-                for route in profile.routes {
-                    XCTAssertTrue(route.additionalAgents.isEmpty)
-                    XCTAssertEqual(route.resultMode, .coordinator)
-                    XCTAssertNil(route.judgeModelID)
-                }
-            }
-            XCTAssertNoThrow(try service.preview(configuration: configuration, platforms: available))
+    func testV018ProfilePreservesExplicitRoutesAndAddsInheritedChildren() throws {
+        let oldRoutes: [Route] = [
+            .init(category: .coordinator, modelID: "gpt-6.1-sol", effort: .fixed("high")),
+            .init(category: .planning, modelID: "gpt-6-astra", effort: .auto),
+            .init(category: .ui, modelID: "gpt-6.1-terra", effort: .fixed("medium"),
+                  additionalAgents: [.init(modelID: "claude-fable-5-1", effort: .fixed("xhigh"))], resultMode: .user),
+            .init(category: .implementation, modelID: "gpt-6.1-sol", effort: .range(minimum: "medium", maximum: "ultra")),
+            legacyTeam,
+            .init(category: .review, modelID: "claude-opus-5-5", effort: .fixed("max")),
+            .init(category: .mechanical, modelID: "gpt-6-luna", effort: .fixed("low")),
+        ]
+        let encoded = try JSONEncoder().encode(RoutingProfile(platform: .codex, routes: oldRoutes))
+        var rawProfile = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let originalRows = try XCTUnwrap(rawProfile["routes"] as? [[String: Any]])
+        rawProfile["routes"] = originalRows.map { row in
+            row.filter { !["inheritsModel", "inheritsEffort", "inheritsTeam"].contains($0.key) }
         }
+        let source = try JSONSerialization.data(withJSONObject: rawProfile)
+        let current = try JSONDecoder().decode(RoutingProfile.self, from: source)
+        XCTAssertEqual(current.routes.map(\.category), WorkCategory.allCases)
+        for route in oldRoutes {
+            XCTAssertEqual(current.route(for: route.category), route)
+            XCTAssertEqual(current.effectiveRoute(for: route.category), route)
+        }
+        for route in current.routes where route.category.parent != nil && route.category != .algorithms {
+            XCTAssertTrue(route.inheritsModel)
+            XCTAssertTrue(route.inheritsEffort)
+            XCTAssertTrue(route.inheritsTeam)
+            XCTAssertTrue(route.stuckEscalation.isEmpty)
+            let parent = try XCTUnwrap(route.category.parent)
+            var expected = try XCTUnwrap(current.route(for: parent))
+            expected.category = route.category
+            XCTAssertEqual(current.effectiveRoute(for: route.category), expected)
+        }
+        XCTAssertEqual(current.route(for: .research)?.modelID, "gpt-6-astra")
+        XCTAssertEqual(try JSONDecoder().decode(RoutingProfile.self, from: JSONEncoder().encode(current)), current)
+    }
+
+    func testCompletePreviewProfileGainsDevelopmentSecurityWithoutRepairingMissingOtherRoutes() throws {
+        var earlier = try XCTUnwrap(StandMixerConfiguration.defaults.profile(for: .codex))
+        earlier.routes.removeAll { $0.category == .developmentSecurity }
+        let reviewIndex = try XCTUnwrap(earlier.routes.firstIndex { $0.category == .review })
+        earlier.routes[reviewIndex].modelID = "gpt-6.1-sol"
+        earlier.routes[reviewIndex].effort = .fixed("high")
+        earlier.routes[reviewIndex].additionalAgents = [.init(modelID: "gpt-6-luna", effort: .fixed("low"))]
+        earlier.routes[reviewIndex].resultMode = .user
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+        let migrated = try decoder.decode(RoutingProfile.self, from: encoder.encode(earlier))
+        XCTAssertEqual(migrated.routes.filter { $0.category != .developmentSecurity }, earlier.routes)
+        let child = try XCTUnwrap(migrated.route(for: .developmentSecurity))
+        XCTAssertTrue(child.inheritsModel && child.inheritsEffort && child.inheritsTeam)
+        var expected = earlier.routes[reviewIndex]
+        expected.category = .developmentSecurity
+        XCTAssertEqual(migrated.effectiveRoute(for: .developmentSecurity), expected)
+
+        earlier.routes.removeAll { $0.category == .deepAnalysis }
+        let incomplete = try decoder.decode(RoutingProfile.self, from: encoder.encode(earlier))
+        XCTAssertNil(incomplete.route(for: .developmentSecurity))
+        XCTAssertNil(incomplete.route(for: .deepAnalysis))
+        XCTAssertThrowsError(try service.preview(configuration: .init(profiles: [incomplete]), platforms: [.codex]))
     }
 
     private var legacyTeam: Route {
@@ -95,7 +106,11 @@ final class CategorySplitTests: XCTestCase {
         legacy["category"] = "algorithmReview"
         for index in profiles.indices {
             var rows = try XCTUnwrap(profiles[index]["routes"] as? [[String: Any]])
-            rows.removeAll { ["algorithms", "review"].contains($0["category"] as? String ?? "") }
+            rows = rows.filter { row in
+                ["coordinator", "planning", "ui", "implementation", "mechanical"].contains(row["category"] as? String ?? "")
+            }.map { row in
+                row.filter { !["inheritsModel", "inheritsEffort", "inheritsTeam"].contains($0.key) }
+            }
             var added = [legacy]
             if let explicitReview {
                 let explicit = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(explicitReview)) as? [String: Any])
@@ -113,7 +128,7 @@ final class CategorySplitTests: XCTestCase {
         for profile in decoded.profiles {
             var expectedReview = legacyTeam
             expectedReview.category = .review
-            XCTAssertEqual(profile.routes.count, 7)
+            XCTAssertEqual(profile.routes.count, WorkCategory.allCases.count)
             XCTAssertEqual(profile.route(for: .algorithms), legacyTeam)
             XCTAssertEqual(profile.route(for: .review), expectedReview)
         }
@@ -152,6 +167,22 @@ final class CategorySplitTests: XCTestCase {
         XCTAssertEqual(preset.configuration, expected)
         XCTAssertEqual(try Data(contentsOf: support.appendingPathComponent("configuration.json")), data)
         XCTAssertEqual(try Data(contentsOf: support.appendingPathComponent("presets.json")), saved)
+    }
+
+    func testLegacyAppliedReceiptKeepsTheRecordedRoutesWhileDraftMigrates() throws {
+        let legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: legacyConfigurationData()) as? [String: Any])
+        let source = try JSONSerialization.data(withJSONObject: ["version": 1, "configuration": legacy, "platforms": ["codex"], "records": []])
+        let receipt = try XCTUnwrap(service.loadInstallation(String(decoding: source, as: UTF8.self)))
+        let recorded = try XCTUnwrap(receipt.configuration)
+        let platform = try XCTUnwrap(recorded.profile(for: .codex))
+        XCTAssertEqual(platform.routes.count, 7)
+        XCTAssertEqual(platform.effectiveRoute(for: .algorithms), legacyTeam)
+        XCTAssertNil(platform.effectiveRoute(for: .debugging))
+        XCTAssertNil(platform.effectiveRoute(for: .research))
+        let status = InstallationStatus(state: .applied, summary: "Fixture", appliedConfiguration: recorded, installedPlatforms: [.codex], hasInstallation: true)
+        let roundTrip = try JSONDecoder().decode(InstallationStatus.self, from: JSONEncoder().encode(status))
+        XCTAssertEqual(roundTrip.appliedConfiguration, recorded)
+        XCTAssertNotNil(try JSONDecoder().decode(StandMixerConfiguration.self, from: legacyConfigurationData()).profile(for: .codex)?.effectiveRoute(for: .debugging))
     }
 
     func testLegacyObserverFindingPreservesScopeEvidenceAndTeamForBothRoles() throws {
@@ -199,17 +230,17 @@ final class CategorySplitTests: XCTestCase {
         let codexSkillPaths = Set(service.controlURLs(.codex).map(\.path))
         XCTAssertTrue(preview.changes.allSatisfy { $0.path.hasPrefix(service.codexHome.path + "/") || codexSkillPaths.contains($0.path) || $0.path == service.externalWorkerGuideURL(.codex).path })
         XCTAssertEqual(preview.changes.filter(\.isDeletion).count, legacyNames.count)
-        let algorithm = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("standmixer-gpt-6-astra-auto.toml") })
+        let algorithm = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("standmixer-gpt-6-astra-max.toml") })
         let review = try XCTUnwrap(preview.changes.first { $0.path == service.externalWorkerGuideURL(.codex).path })
         XCTAssertTrue(algorithm.after.contains("gpt-6-astra"))
-        XCTAssertNotEqual(algorithm.path, review.path, "Optimized Algorithms stays native; Review uses Opus.")
-        XCTAssertTrue(review.after.contains("claude-opus-5-5"))
+        XCTAssertNotEqual(algorithm.path, review.path, "Optimized Algorithms stays native; Security review uses Fable.")
+        XCTAssertTrue(review.after.contains("claude-fable-5-2"))
         let instructions = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("AGENTS.md") })
         XCTAssertTrue(instructions.after.contains("- Algorithms:"))
-        XCTAssertTrue(instructions.after.contains("- Review & Security:"))
-        XCTAssertTrue(instructions.after.contains("- Visual:"))
-        XCTAssertTrue(instructions.after.contains("Algorithm design and high-intelligence reasoning"))
-        XCTAssertTrue(instructions.after.contains("vulnerabilities, including authentication, permissions, and secret handling"))
+        XCTAssertTrue(instructions.after.contains("- Code review:"))
+        XCTAssertTrue(instructions.after.contains("- Design & UI:"))
+        XCTAssertTrue(instructions.after.contains("Unresolved algorithm or invention design"))
+        XCTAssertTrue(instructions.after.contains("- Development security: Bounded security checks during private development, including authentication, permissions, and secret handling."))
         XCTAssertFalse(instructions.after.contains("Algorithm review:"))
         _ = try service.apply(preview: preview)
         XCTAssertTrue(FileManager.default.fileExists(atPath: algorithm.path))

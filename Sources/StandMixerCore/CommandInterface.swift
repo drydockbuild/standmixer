@@ -15,6 +15,25 @@ public enum StandMixerCommandInterface {
                            availablePlatforms: Set<AgentPlatform>? = nil) async -> StandMixerCommandResponse {
         let verb = arguments.first ?? "status"
         let tail = Array(arguments.dropFirst())
+        if ["check-claude", "connect-claude"].contains(verb.lowercased()) {
+            guard tail.isEmpty else { return .init("Use standmixer \(verb) without additional arguments.", exitCode: 2) }
+            do {
+                let connection = StandMixerClaudeConnectionService(service: service)
+                let report: StandMixerClaudeConnectionReport
+                if verb.lowercased() == "connect-claude" { report = try await connection.connect() }
+                else { report = try await connection.check() }
+                let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]
+                return .init(String(decoding: try encoder.encode(report), as: UTF8.self), exitCode: report.state == .connected ? 0 : 1)
+            } catch is CancellationError { return .init("Claude connection cancelled.", exitCode: 130) }
+            catch { return .init("Claude connection could not be checked. Open Connect Claude for Codex in StandMixer.", exitCode: 1) }
+        }
+        if verb.lowercased() == "resolve-cli" {
+            guard tail.count == 1, let platform = AgentPlatform(rawValue: tail[0]) else {
+                return .init("Usage: standmixer resolve-cli <claude|codex>", exitCode: 2)
+            }
+            do { return .init(try await service.resolveCLI(platform).path) }
+            catch { return .init("StandMixer: \(error.localizedDescription)", exitCode: 1) }
+        }
         guard tail.isEmpty || tail == ["--yes"] else {
             return .init("Use one command, optionally followed by --yes.\n\n" + help, exitCode: 2)
         }
@@ -71,6 +90,10 @@ public enum StandMixerCommandInterface {
     public static let help = """
     StandMixer
       status                 Show what is applied (default; no agents launched).
+      resolve-cli <claude|codex>  Print the freshly verified CLI path; no inference.
+      check-claude            Check the Claude connection used by Codex; no model call.
+      connect-claude          Connect Claude for Codex through the official browser login.
+      run-claude -- -p ...    Launch an explicit Claude worker with that same connection.
       fast | optimized | high  Preview a preset; add --yes to apply it.
       settings               Open settings in the invoking harness.
       install-mac            Build and open the optional Mac app locally.
@@ -102,7 +125,7 @@ public enum StandMixerCommandInterface {
             if status.state != .applied { text += "\nThe table is the last applied recipe; current files differ or could not be verified.\n" }
         }
         if !status.details.isEmpty { text += "\n" + status.details.map { "• " + $0 }.joined(separator: "\n") + "\n" }
-        if !status.hasInstallation { text += "\nChoose Fast, Optimized, or High in StandMixer and apply it to install the routing and commands.\n" }
+        if !status.hasInstallation { text += "\nChoose Fast, Optimized, or High-quality in StandMixer and apply it to install the routing and commands.\n" }
         text += "\nFile checks verify setup, not live model execution. Use a fresh session after applying."
         return text
     }
@@ -111,9 +134,12 @@ public enum StandMixerCommandInterface {
         StandMixerPreset.allCases.first { preset in
             let candidate = StandMixerConfiguration.preset(preset, availablePlatforms: platforms)
             return !platforms.isEmpty && platforms.allSatisfy { platform in
-                WorkCategory.allCases.allSatisfy { category in
-                    guard let lhs = configuration.profile(for: platform)?.route(for: category),
-                          let rhs = candidate.profile(for: platform)?.route(for: category) else { return false }
+                guard let draft = configuration.profile(for: platform), let template = candidate.profile(for: platform) else { return false }
+                return WorkCategory.allCases.allSatisfy { category in
+                    guard let stored = draft.route(for: category), let expected = template.route(for: category),
+                          stored.inheritsModel == expected.inheritsModel, stored.inheritsEffort == expected.inheritsEffort,
+                          stored.inheritsTeam == expected.inheritsTeam,
+                          let lhs = draft.effectiveRoute(for: category), let rhs = template.effectiveRoute(for: category) else { return false }
                     return sameRoute(lhs, rhs)
                 }
             }
@@ -130,9 +156,12 @@ public enum StandMixerCommandInterface {
             case .range: return a.minimum == b.minimum && a.maximum == b.maximum
             }
         }
+        func sameAssignments(_ a: [AgentAssignment], _ b: [AgentAssignment]) -> Bool {
+            a.count == b.count && zip(a, b).allSatisfy { $0.modelID == $1.modelID && sameEffort($0.effort, $1.effort) }
+        }
         guard lhs.modelID == rhs.modelID, sameEffort(lhs.effort, rhs.effort),
-              lhs.additionalAgents.count == rhs.additionalAgents.count,
-              zip(lhs.additionalAgents, rhs.additionalAgents).allSatisfy({ pair in pair.0.modelID == pair.1.modelID && sameEffort(pair.0.effort, pair.1.effort) }) else { return false }
+              sameAssignments(lhs.additionalAgents, rhs.additionalAgents),
+              sameAssignments(lhs.stuckEscalation, rhs.stuckEscalation) else { return false }
         guard !lhs.additionalAgents.isEmpty else { return true }
         return lhs.teamMode == rhs.teamMode && lhs.resultMode == rhs.resultMode
             && (lhs.resultMode != .ai || lhs.judgeModelID == rhs.judgeModelID)
@@ -145,17 +174,21 @@ public enum StandMixerCommandInterface {
                      "| --- | " + columns.map { _ in "---" }.joined(separator: " | ") + " |"]
         for category in WorkCategory.allCases {
             let cells = columns.map { platform -> String in
-                guard let route = configuration.profile(for: platform)?.route(for: category) else { return "Unknown" }
+                guard let route = configuration.profile(for: platform)?.effectiveRoute(for: category) else { return "Unknown" }
                 if route.isAutoController { return "Auto — current model" }
-                let workers = [AgentAssignment(modelID: route.modelID, effort: route.effort)] + route.additionalAgents
-                return workers.map { worker in
+                func label(_ worker: AgentAssignment) -> String {
                     let model = catalog[worker.modelID]
                     let via = model.map { $0.platform == platform ? "" : " via " + $0.platform.displayName } ?? ""
                     let effort = worker.effort.mode == .auto ? "" : " (\(worker.effort.description))"
                     return (model?.label ?? worker.modelID).replacingOccurrences(of: "|", with: "\\|") + via + effort
-                }.joined(separator: "; ")
+                }
+                let workers = [AgentAssignment(modelID: route.modelID, effort: route.effort)] + route.additionalAgents
+                let primary = workers.map(label).joined(separator: "; ")
+                guard !route.stuckEscalation.isEmpty else { return primary }
+                return primary + " · When stuck: " + route.stuckEscalation.map(label).joined(separator: " → ")
             }
-            lines.append("| \(category.title) | " + cells.joined(separator: " | ") + " |")
+            let task = category.parent == nil ? category.title : "↳ \(category.title)"
+            lines.append("| \(task) | " + cells.joined(separator: " | ") + " |")
         }
         return lines.joined(separator: "\n") + "\nEffort follows the caller unless shown.\n"
     }

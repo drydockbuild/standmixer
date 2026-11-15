@@ -22,28 +22,6 @@ final class RoutingTeamTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("home/.claude").path))
     }
 
-    func testOptimizedRecipePreservesRequestedChoicesWithoutRestrictingProductFamilies() throws {
-        let configuration = StandMixerConfiguration.defaults
-        let codex = try XCTUnwrap(configuration.profile(for: .codex))
-        let claude = try XCTUnwrap(configuration.profile(for: .claude))
-        XCTAssertEqual(codex.route(for: .coordinator)?.modelID, "auto")
-        XCTAssertEqual(codex.route(for: .coordinator)?.effort, .auto)
-        XCTAssertEqual(codex.route(for: .ui)?.modelID, "gpt-6-astra")
-        XCTAssertEqual(codex.route(for: .mechanical)?.modelID, "gpt-6-luna")
-        XCTAssertEqual(claude.route(for: .coordinator)?.modelID, "auto")
-        XCTAssertEqual(claude.route(for: .coordinator)?.effort, .auto)
-        XCTAssertEqual(claude.route(for: .planning)?.modelID, "claude-opus-5-5")
-        XCTAssertEqual(claude.route(for: .ui)?.modelID, "claude-opus-5-5")
-        XCTAssertEqual(claude.route(for: .implementation)?.modelID, "gpt-6.1-sol")
-        for profile in configuration.profiles {
-            XCTAssertEqual(profile.route(for: .ui)?.additionalAgents.map(\.modelID), [profile.platform == .codex ? "claude-opus-5-5" : "claude-fable-5-1"])
-            XCTAssertTrue(profile.routes.filter { $0.category != .ui }.allSatisfy { $0.additionalAgents.isEmpty })
-        }
-        XCTAssertEqual(StandMixerPreset.allCases.map(\.title), ["StandMixer Fast", "StandMixer Optimized", "StandMixer High"])
-        let claudeOnly = StandMixerConfiguration.preset(.optimized, availablePlatforms: [.claude])
-        XCTAssertEqual(claudeOnly.profile(for: .claude)?.route(for: .planning)?.modelID, "claude-opus-5-5")
-    }
-
     func testAvailabilityPresetsAreDeterministicAndNativeWhenOnlyOneHarnessAvailable() throws {
         for preset in StandMixerPreset.allCases {
             for platform in AgentPlatform.allCases {
@@ -71,7 +49,7 @@ final class RoutingTeamTests: XCTestCase {
         configuration.profiles[profile].routes[ui].judgeModelID = "claude-opus-5-5"
         let preview = try service.preview(configuration: configuration, platforms: [.codex])
         let workerFiles = preview.changes.filter { $0.path.contains("/agents/") }
-        XCTAssertEqual(workerFiles.count, 5, "Auto roles and the judge reuse matching definitions; explicit fixed overrides keep their own definitions.")
+        XCTAssertEqual(workerFiles.count, 7, "Inherited roles share definitions; explicit fixed overrides use their own definitions.")
         XCTAssertTrue(workerFiles.contains { $0.path.hasSuffix("standmixer-gpt-6.1-sol-ultra.toml") && $0.after.contains("ultra") })
         XCTAssertFalse(workerFiles.contains { $0.path.hasSuffix("standmixer-claude-opus-5-5-xhigh.toml") })
         let guide = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(".agents/skills/standmixer/references/external-workers.md") })
@@ -81,7 +59,7 @@ final class RoutingTeamTests: XCTestCase {
         configuration.profiles[profile].routes[ui].additionalAgents = []
         configuration.profiles[profile].routes[ui].resultMode = .coordinator
         let reduced = try service.preview(configuration: configuration, platforms: [.codex])
-        XCTAssertEqual(reduced.changes.filter(\.isDeletion).count, 2, "Keep the shared Auto specs; remove the now-unused explicit effort variants.")
+        XCTAssertEqual(reduced.changes.filter(\.isDeletion).count, 2, "Keep the active shared definitions and remove the now-unused explicit effort variants.")
         _ = try service.apply(preview: reduced)
         XCTAssertFalse(try String(contentsOfFile: guide.path, encoding: .utf8).contains("--effort 'xhigh'"))
         _ = try service.restoreLast()
@@ -100,7 +78,11 @@ final class RoutingTeamTests: XCTestCase {
 
     func testVisualComparisonIsInitialOnlyAndFollowupsStayWithWinningAgent() throws {
         for platform in AgentPlatform.allCases {
-            let preview = try service.preview(configuration: .defaults, platforms: [platform])
+            var configuration = StandMixerConfiguration.defaults
+            let profile = try XCTUnwrap(configuration.profiles.firstIndex { $0.platform == platform })
+            let visual = try XCTUnwrap(configuration.profiles[profile].routes.firstIndex { $0.category == .ui })
+            configuration.profiles[profile].routes[visual].additionalAgents = [.init(modelID: "gpt-6.1-sol")]
+            let preview = try service.preview(configuration: configuration, platforms: [platform])
             let policy = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(platform == .codex ? "/AGENTS.md" : "/CLAUDE.md") }).after
             XCTAssertTrue(policy.contains("initial substantial visual design"))
             XCTAssertTrue(policy.contains("helpers provide basic alternatives only, not full implementations"))

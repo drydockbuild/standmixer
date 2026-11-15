@@ -7,6 +7,7 @@ struct ModelPicker: View {
     var restrictedPlatform: AgentPlatform? = nil
     var routingPlatform: AgentPlatform? = nil
     var allowsAutoController = false
+    var excludedModelIDs: Set<String> = []
     var highlighted = false
     var accessibilityTitle = "Model"
     let onSelect: (String) -> Void
@@ -23,11 +24,12 @@ struct ModelPicker: View {
         AgentPlatform.allCases.filter { (restrictedPlatform == nil || $0 == restrictedPlatform) && store.modelPlatforms.contains($0) }
     }
     private var selectableModels: [ModelSpec] {
-        store.availableModels.filter { platforms.contains($0.platform) }
+        store.availableModels.filter { platforms.contains($0.platform) && !excludedModelIDs.contains($0.id) }
     }
     private var trimmedID: String { customID.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var customValidation: String? {
         guard !trimmedID.isEmpty else { return nil }
+        if excludedModelIDs.contains(trimmedID) { return "This model is already in the sequence." }
         if trimmedID == Route.autoControllerModelID { return "Auto is reserved for the Controller setting." }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/[]")
         guard trimmedID.count <= 180, trimmedID.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
@@ -120,6 +122,7 @@ struct ModelPicker: View {
     }
 
     private func isAllowed(_ id: String) -> Bool {
+        if excludedModelIDs.contains(id) { return false }
         if id == Route.autoControllerModelID { return allowsAutoController }
         guard let restrictedPlatform else { return true }
         return store.model(id)?.platform == restrictedPlatform
@@ -274,20 +277,28 @@ struct EffortMeter: View {
     private var upper: Int? { EffortPolicy.levels.firstIndex(of: policy.maximum) }
     private func fill(_ index: Int) -> Color {
         guard policy.mode != .auto else { return StandMixerTheme.muted.opacity(0.24) }
-        let level = EffortPolicy.levels[index]
-        if policy.mode == .fixed { return level == policy.value ? StandMixerTheme.accent : StandMixerTheme.muted.opacity(0.19) }
+        if policy.mode == .fixed {
+            let selected = EffortPolicy.levels.firstIndex(of: policy.value) ?? -1
+            return index <= selected ? StandMixerTheme.accent : StandMixerTheme.muted.opacity(0.19)
+        }
         guard let lower, let upper, (lower...max(lower, upper)).contains(index) else { return StandMixerTheme.muted.opacity(0.16) }
         return StandMixerTheme.accent.opacity(index == lower || index == upper ? 1 : 0.45)
     }
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(Array(EffortPolicy.levels.enumerated()), id: \.offset) { index, level in
-                RoundedRectangle(cornerRadius: 0.8).fill(fill(index))
-                    .frame(width: 3, height: CGFloat(4 + index * 2))
-                    .opacity(supportedLevels.contains(level) || policy.value == level && policy.mode == .fixed ? 1 : 0.35)
+        Group {
+            if policy.mode == .auto {
+                Text("Auto").font(.system(size: 9)).foregroundStyle(StandMixerTheme.muted)
+            } else {
+                HStack(alignment: .bottom, spacing: 2) {
+                    ForEach(Array(EffortPolicy.levels.enumerated()), id: \.offset) { index, level in
+                        RoundedRectangle(cornerRadius: 0.8).fill(fill(index))
+                            .frame(width: 3, height: CGFloat(4 + index * 2))
+                            .opacity(supportedLevels.contains(level) || policy.value == level && policy.mode == .fixed ? 1 : 0.35)
+                    }
+                }
             }
         }
-        .frame(width: 28, height: 16, alignment: .bottom)
+        .frame(width: 30, height: 16, alignment: .bottom)
         .help("Low · Medium · High · X-high · Max · Ultra\n" + (policy.mode == .auto ? "Auto follows caller" : policy.shortLabel))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Effort meter")

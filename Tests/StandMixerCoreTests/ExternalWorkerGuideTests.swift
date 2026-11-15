@@ -72,11 +72,22 @@ final class ExternalWorkerGuideTests: XCTestCase {
         XCTAssertTrue(claude.contains("Sol 6.1 via Codex · <task>"))
         XCTAssertTrue(claude.contains("-m 'gpt-6.1-sol'"))
         XCTAssertTrue(codex.contains("exec_command sessions, write_stdin waits"))
-        XCTAssertTrue(codex.contains("Opus 5.5 via Claude Code · <task>"))
-        XCTAssertTrue(codex.contains("--model 'claude-opus-5-5'"))
+        XCTAssertTrue(codex.contains("Fable 5.2 via Claude Code · <task>"))
+        XCTAssertTrue(codex.contains("--model 'claude-fable-5-2'"))
+        XCTAssertTrue(codex.contains("--effort 'max'"))
+        XCTAssertTrue(codex.contains(" run-claude -- -p"))
+        XCTAssertTrue(claude.contains(" resolve-cli codex)\" || exit $?"))
+        XCTAssertFalse(codex.contains("$standmixer_claude_cli"))
+        XCTAssertTrue(claude.contains("\"$standmixer_codex_cli\" exec"))
+        for guide in [claude, codex] {
+            XCTAssertTrue(guide.contains(service.applicationSupport.appendingPathComponent("bin/standmixer").path))
+            XCTAssertTrue(guide.contains("Resolution does not sign in or transfer a Desktop session"))
+            XCTAssertFalse(guide.contains("/Applications/ChatGPT.app"))
+            XCTAssertFalse(guide.contains(".local/bin/claude"))
+        }
         let policy = try XCTUnwrap(preview.changes.first { $0.path == service.claudeHome.appendingPathComponent("CLAUDE.md").path }).after
-        XCTAssertTrue(policy.contains("direct external CLI recipe `external-gpt-6.1-sol-auto`"))
-        XCTAssertFalse(policy.contains("standmixer-gpt-6.1-sol-auto"))
+        XCTAssertTrue(policy.contains("direct external CLI recipe `external-gpt-6.1-sol-max`"))
+        XCTAssertFalse(policy.contains("standmixer-gpt-6.1-sol-max"))
     }
 
     func testExactGuideAllowlistRejectsSiblingAndCustomRootsClassifyCorrectly() throws {

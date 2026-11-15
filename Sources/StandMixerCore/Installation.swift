@@ -18,6 +18,20 @@ public struct InstallationStatus: Codable, Sendable {
         self.state = state; self.summary = summary; self.details = details
         self.appliedConfiguration = appliedConfiguration; self.installedPlatforms = installedPlatforms; self.hasInstallation = hasInstallation
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case state, summary, details, appliedConfiguration, installedPlatforms, hasInstallation
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        state = try values.decode(InstallationState.self, forKey: .state)
+        summary = try values.decode(String.self, forKey: .summary)
+        details = try values.decode([String].self, forKey: .details)
+        appliedConfiguration = try values.decodeIfPresent(StandMixerConfiguration.AppliedSnapshot.self, forKey: .appliedConfiguration)?.configuration
+        installedPlatforms = try values.decode(Set<AgentPlatform>.self, forKey: .installedPlatforms)
+        hasInstallation = try values.decode(Bool.self, forKey: .hasInstallation)
+    }
 }
 
 public struct UninstallPreview: Identifiable, Sendable {
@@ -55,6 +69,24 @@ struct InstallationReceipt: Codable, Sendable, Equatable {
     var platforms: Set<AgentPlatform>
     var records: [InstallationRecord]
     var cleanupStarted: Bool?
+
+    private enum CodingKeys: String, CodingKey { case version, configuration, platforms, records, cleanupStarted }
+
+    init(configuration: StandMixerConfiguration?, platforms: Set<AgentPlatform>, records: [InstallationRecord], cleanupStarted: Bool? = nil) {
+        self.configuration = configuration
+        self.platforms = platforms
+        self.records = records
+        self.cleanupStarted = cleanupStarted
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        version = try values.decode(Int.self, forKey: .version)
+        configuration = try values.decodeIfPresent(StandMixerConfiguration.AppliedSnapshot.self, forKey: .configuration)?.configuration
+        platforms = try values.decode(Set<AgentPlatform>.self, forKey: .platforms)
+        records = try values.decode([InstallationRecord].self, forKey: .records)
+        cleanupStarted = try values.decodeIfPresent(Bool.self, forKey: .cleanupStarted)
+    }
 }
 
 extension ConfigEdits {

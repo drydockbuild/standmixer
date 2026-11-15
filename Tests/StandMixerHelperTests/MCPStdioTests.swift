@@ -18,12 +18,19 @@ final class MCPStdioTests: XCTestCase {
         let requests: [(String, [String: Any])] = [
             ("initialize", ["protocolVersion": "2025-11-25", "capabilities": [:]]),
             ("tools/list", [:]),
-            ("resources/read", ["uri": StandMixerUIAssets.resourceURI]),
+            ("resources/read", [:]),
             ("tools/call", ["name": "open_standmixer", "arguments": [:]]),
             ("tools/call", ["name": "standmixer_action", "arguments": ["action": "state"]])]
         var replies: [[String: Any]] = []
         for (index, request) in requests.enumerated() {
-            let bytes = try message(index + 1, request.0, params: request.1)
+            var params = request.1
+            if request.0 == "resources/read" {
+                let tools = try XCTUnwrap(replies[1]["tools"] as? [[String: Any]])
+                let uri = try XCTUnwrap(((tools.first?["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["resourceUri"] as? String)
+                XCTAssertTrue(uri.hasPrefix("ui://standmixer/settings-"))
+                params["uri"] = uri
+            }
+            let bytes = try message(index + 1, request.0, params: params)
             XCTAssertLessThan(bytes.count, 1024)
             try session.send(bytes + Data([10]))
             let response = try session.receive()

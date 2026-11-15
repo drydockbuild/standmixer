@@ -26,17 +26,17 @@ final class CommandInterfaceTests: XCTestCase {
     }
 
     func testPresetPreviewIsReadOnlyAndApplyRecordsActualRecipeWithCrossProviderLabels() async throws {
-        let preview = await StandMixerCommandInterface.run(arguments: ["fast"], service: service, availablePlatforms: [.codex, .claude])
+        let preview = await StandMixerCommandInterface.run(arguments: ["optimized"], service: service, availablePlatforms: [.codex, .claude])
         XCTAssertEqual(preview.exitCode, 0)
-        XCTAssertTrue(preview.text.contains("Terra 6.1"))
-        XCTAssertTrue(preview.text.contains("Opus 5.5 via Claude Code"))
+        XCTAssertTrue(preview.text.contains("↳ Routine coding"))
+        XCTAssertTrue(preview.text.contains("Fable 5.2 via Claude Code (max)"))
         XCTAssertTrue(preview.text.contains("Sol 6.1 via Codex"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.applicationSupport.path))
-        let apply = await StandMixerCommandInterface.run(arguments: ["fast", "--yes"], service: service, availablePlatforms: [.codex, .claude])
+        let apply = await StandMixerCommandInterface.run(arguments: ["optimized", "--yes"], service: service, availablePlatforms: [.codex, .claude])
         XCTAssertEqual(apply.exitCode, 0, apply.text)
         let result = await StandMixerCommandInterface.run(arguments: ["status"], service: service)
         XCTAssertEqual(result.exitCode, 0, result.text)
-        XCTAssertTrue(result.text.contains("Preset: StandMixer Fast"))
+        XCTAssertTrue(result.text.contains("Preset: StandMixer Optimized"))
         XCTAssertTrue(result.text.contains("not live model execution"))
         XCTAssertFalse(result.text.contains("runtime verified"))
     }
@@ -45,9 +45,7 @@ final class CommandInterfaceTests: XCTestCase {
         var configuration = StandMixerConfiguration.defaults
         for profile in configuration.profiles.indices {
             for route in configuration.profiles[profile].routes.indices {
-                if configuration.profiles[profile].routes[route].category != .coordinator {
-                    configuration.profiles[profile].routes[route].effort.value = "high"
-                }
+                configuration.profiles[profile].routes[route].effort.minimum = "xhigh"
                 for index in configuration.profiles[profile].routes[route].additionalAgents.indices {
                     configuration.profiles[profile].routes[route].additionalAgents[index].id = UUID()
                     configuration.profiles[profile].routes[route].additionalAgents[index].modelPlatform = .claude
@@ -110,7 +108,8 @@ final class CommandInterfaceTests: XCTestCase {
     }
 
     func testInvalidArgumentsCannotTriggerMutationAndSettingsOnlyRequestsOpeningApp() async {
-        for arguments in [["fast", "--yes", "unexpected"], ["uninstall", "--yess"], ["made-up"]] {
+        for arguments in [["fast", "--yes", "unexpected"], ["uninstall", "--yess"], ["made-up"],
+                          ["resolve-cli"], ["resolve-cli", "unknown"], ["resolve-cli", "claude", "--yes"]] {
             let response = await StandMixerCommandInterface.run(arguments: arguments, service: service, availablePlatforms: [.codex, .claude])
             XCTAssertEqual(response.exitCode, 2, response.text)
         }

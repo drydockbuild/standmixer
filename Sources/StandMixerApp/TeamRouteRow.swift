@@ -26,8 +26,20 @@ struct RouteRow: View {
         return RouteComparison(current: current, proposed: route, previousTeamMode: store.appliedRoute(category, in: platform)?.teamMode)
     }
 
+    private var highlighted: Bool {
+        comparison.hasKnownChanges || store.hasEscalationChanges(category, in: platform)
+            || !store.inheritanceChanges(category, in: platform).isEmpty
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            if category.parent != nil {
+                HStack(spacing: 8) {
+                    inheritanceControl("Model", keyPath: \.inheritsModel)
+                    inheritanceControl("Effort", keyPath: \.inheritsEffort)
+                    inheritanceControl("Team", keyPath: \.inheritsTeam)
+                }
+            }
             worker(modelID: route.modelID, index: 0)
             ForEach(Array(route.additionalAgents.enumerated()), id: \.element.id) { index, assignment in
                 worker(modelID: assignment.modelID, index: index + 1)
@@ -52,8 +64,9 @@ struct RouteRow: View {
             } else if let previousJudge = current?.judgeModelID {
                 AssignmentChangeLine(platform: platform, modelID: previousJudge, prefix: "Judge:", removed: true)
             }
+            if category == .debugging { StuckEscalationEditor(platform: platform, category: category) }
             if category != .coordinator {
-                HStack(spacing: 7) {
+                VStack(alignment: .leading, spacing: 6) {
                     AgentCountControl(category: category, platform: platform, highlighted: comparison.countChanged)
                     if !route.additionalAgents.isEmpty {
                         Picker("Team mode", selection: Binding(get: { route.teamMode }, set: { value in
@@ -66,21 +79,43 @@ struct RouteRow: View {
                             .help("Lead + review uses a focused secondary pass. Independent passes give each worker the full task. Keep the chosen visual winner for follow-ups.")
                         ResultModeControl(category: category, platform: platform, highlighted: comparison.resultChanged)
                     }
-                    Spacer(minLength: 0)
                 }
                 if !store.isEditing && (comparison.countChanged || comparison.resultChanged) {
                     Text(previousTeamSummary).font(.system(size: 8.5)).foregroundStyle(StandMixerTheme.muted)
                 }
             }
         }
-        .padding(.horizontal, 9).padding(.vertical, 7)
-        .padding(.top, comparison.hasKnownChanges ? 4 : 0)
-        .background(comparison.hasKnownChanges ? StandMixerTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(comparison.hasKnownChanges ? StandMixerTheme.accent.opacity(0.45) : .clear, lineWidth: 1))
+        .padding(.vertical, 5)
+        .padding(.top, highlighted ? 4 : 0)
+        .background(highlighted ? StandMixerTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(highlighted ? StandMixerTheme.accent.opacity(0.45) : .clear, lineWidth: 1))
         .overlay(alignment: .topTrailing) {
-            if comparison.hasKnownChanges { ChangedCellBadge(isEdited: store.isEditing).padding(.trailing, 9).offset(y: -4) }
+            if highlighted { ChangedCellBadge(isEdited: store.isEditing).padding(.trailing, 9).offset(y: -4) }
         }
         .padding(.horizontal, 5).padding(.vertical, 4)
+    }
+
+    private func inheritanceBinding(_ keyPath: WritableKeyPath<Route, Bool>) -> Binding<Bool> {
+        Binding<Bool>(get: {
+            store.storedRoute(category, in: platform)[keyPath: keyPath]
+        }, set: { inherited in
+            store.editProfile(platform) {
+                store.updateRoute(category) { route in route[keyPath: keyPath] = inherited }
+            }
+        })
+    }
+
+    private func inheritanceControl(_ title: String, keyPath: WritableKeyPath<Route, Bool>) -> some View {
+        let selection = inheritanceBinding(keyPath)
+        let accessibilityTitle = [platform.displayName, category.displayTitle, title.lowercased(), "source"].joined(separator: " ")
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.system(size: 9)).foregroundStyle(StandMixerTheme.muted)
+            Picker(title + " source", selection: selection) {
+                Text("Use parent").tag(true)
+                Text("Custom").tag(false)
+            }.labelsHidden().pickerStyle(.menu).controlSize(.small)
+                .accessibilityLabel(accessibilityTitle)
+        }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var previousTeamSummary: String {
@@ -149,6 +184,11 @@ struct RouteRow: View {
 /// This adapter preserves AppStore's normalization, validation, backup, and save behavior.
 extension AppStore {
     func route(_ category: WorkCategory, in platform: AgentPlatform) -> Route {
+        configuration.profile(for: platform)?.effectiveRoute(for: category)
+            ?? StandMixerConfiguration.defaults.profile(for: platform)!.effectiveRoute(for: category)!
+    }
+
+    func storedRoute(_ category: WorkCategory, in platform: AgentPlatform) -> Route {
         configuration.profile(for: platform)?.route(for: category)
             ?? StandMixerConfiguration.defaults.profile(for: platform)!.route(for: category)!
     }

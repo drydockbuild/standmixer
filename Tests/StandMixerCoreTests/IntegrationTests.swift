@@ -27,12 +27,13 @@ final class IntegrationTests: XCTestCase {
 
     func testMixedDefaultsKeepNativeCoordinators() throws {
         let defaults = StandMixerConfiguration.preset(.fast, availablePlatforms: Set(AgentPlatform.allCases))
-        XCTAssertEqual(WorkCategory.allCases.count, 7)
+        XCTAssertEqual(WorkCategory.topLevelCases.count, 6)
         XCTAssertEqual(defaults.profile(for: .codex)?.route(for: .coordinator)?.modelID, "auto")
         XCTAssertEqual(defaults.profile(for: .claude)?.route(for: .coordinator)?.modelID, "auto")
         for profile in defaults.profiles {
-            XCTAssertTrue(profile.routes.contains { $0.modelID.hasPrefix("gpt-") })
-            XCTAssertTrue(profile.routes.contains { $0.modelID.hasPrefix("claude-") })
+            let assignments = profile.effectiveRoutes.flatMap { [$0.modelID] + $0.additionalAgents.map(\.modelID) }
+            XCTAssertTrue(assignments.contains { $0.hasPrefix("gpt-") })
+            XCTAssertTrue(assignments.contains { $0.hasPrefix("claude-") })
             XCTAssertNotNil(profile.route(for: .ui))
         }
     }
@@ -135,7 +136,7 @@ final class IntegrationTests: XCTestCase {
     }
 
     func testBothHarnessesGenerateDirectOppositeProviderRecipes() throws {
-        var configuration = StandMixerConfiguration.preset(.fast, availablePlatforms: Set(AgentPlatform.allCases))
+        var configuration = StandMixerConfiguration.preset(.optimized, availablePlatforms: Set(AgentPlatform.allCases))
         let codexIndex = try XCTUnwrap(configuration.profiles.firstIndex { $0.platform == .codex })
         let visualIndex = try XCTUnwrap(configuration.profiles[codexIndex].routes.firstIndex { $0.category == .ui })
         configuration.profiles[codexIndex].routes[visualIndex].modelID = "claude-haiku-5-5"

@@ -24,7 +24,7 @@ export function state(platforms = ['codex', 'claude']) {
     availablePlatforms: ['codex', 'claude'], catalog: modelCatalog, hasSavedDraft: false,
     presets,
     installation: { state: 'notInstalled', summary: 'Nothing applied', hasInstallation: false, installedPlatforms: [] },
-    canRestore: false, notes: [], connections: [], savedPresets: [], nativeSettings: [], inspection: { createdAt: '2026-11-02T00:00:00Z', expiresAt: '2026-11-02T00:15:00Z', reports: [], fromCache: true },
+    canRestore: false, notes: [], connections: [], savedPresets: [], nativeSettings: [],
   };
 }
 export function preview(lines = 2, kind = 'apply') {
@@ -43,3 +43,13 @@ export const pane = {
   props: { title: 'StandMixer', isFocused: true, bodyColumns: 80, placement: 'inline',
     scroll: { offset: 0, bodyRows: 34 }, view: {} },
 };
+
+// Full stored routes exercise the same independent inheritance flags as Core.
+export function hierarchyState() {
+  const initial=state(),parents={quickIdeas:'planning',uiBuild:'ui',uiReview:'ui',routineCoding:'implementation',debugging:'implementation',developmentSecurity:'review',securityReview:'review',draftingEditing:'research',deepAnalysis:'research',computerUse:'mechanical'};
+  for(const config of [initial.configuration,...initial.presets.map(preset=>preset.configuration)])for(const profile of config.profiles){
+    profile.routes.push({...JSON.parse(JSON.stringify(profile.routes.find(route=>route.category==='planning'))),category:'research'});
+    for(const [category,parent] of Object.entries(parents))profile.routes.push({...JSON.parse(JSON.stringify(profile.routes.find(route=>route.category===parent))),category,inheritsModel:true,inheritsEffort:true,inheritsTeam:true});
+  }
+  return initial;
+}

@@ -6,7 +6,13 @@ struct StandMixerWindow: View {
     @State private var showingSave = false
     @State private var previewFiles = false
 
-    private var title: String { StandMixerPreset(rawValue: store.presetKey)?.rawValue.capitalized ?? store.presetName }
+    private var title: String { store.presetKey == "high" ? "High quality" : StandMixerPreset(rawValue: store.presetKey)?.rawValue.capitalized ?? store.presetName }
+    private var buildNumber: String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return value
+    }
+    private var versionLabel: String { "v\(StandMixerRelease.version)" + (buildNumber.map { " · build \($0)" } ?? "") }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -42,8 +48,7 @@ struct StandMixerWindow: View {
                 ScrollViewReader { scroll in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 7) {
-                            if store.isEditing { RoutingView() }
-                            else { PresetChangesView(controller: store.currentSettings) }
+                            PresetChangesView(controller: store.currentSettings)
                         }
                         .padding(.bottom, 5)
                     }
@@ -91,7 +96,12 @@ struct StandMixerWindow: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 StandMixerBrandMark().frame(width: 31, height: 31)
-                Text("StandMixer").font(.system(size: 19, weight: .semibold, design: .rounded)).tracking(-0.5)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("StandMixer").font(.system(size: 19, weight: .semibold, design: .rounded)).tracking(-0.5)
+                    Text(versionLabel).font(.system(size: 9, weight: .medium)).foregroundStyle(StandMixerTheme.muted)
+                        .lineLimit(1)
+                        .accessibilityLabel("StandMixer version \(StandMixerRelease.version)" + (buildNumber.map { ", build \($0)" } ?? ""))
+                }
             }
             .padding(.horizontal, 9).padding(.top, 4).padding(.bottom, 8)
             Text("Presets").font(.system(size: 11, weight: .semibold)).foregroundStyle(StandMixerTheme.muted)
@@ -226,16 +236,16 @@ private struct SidebarPreset: View {
     let action: () -> Void
     private var detail: String {
         switch preset {
-        case .fast: return "Lighter models"
+        case .fast: return "Quick, focused work"
         case .optimized: return "Best fit for each task"
-        case .high: return "Multiple agents"
+        case .high: return "Strong models + pairs"
         }
     }
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(preset.rawValue.capitalized).font(.system(size: 14, weight: .semibold))
+                    Text(preset == .high ? "High quality" : preset.rawValue.capitalized).font(.system(size: 14, weight: .semibold))
                     Spacer(minLength: 0)
                     if preset == .optimized {
                         Text("DEFAULT").font(.system(size: 6.5, weight: .bold)).tracking(0.6).foregroundStyle(StandMixerTheme.accent)
@@ -263,7 +273,7 @@ private struct KnownChangeSummary: View {
                 let finding = controller.run(for: platform).isPreviousReport ? nil : controller.finding(platform: platform, category: category)
                 let current = category == .coordinator
                     ? (store.appliedController(in: platform) ?? (proposed.isAutoController ? nil : finding)) : finding
-                return RouteComparison(current: current, proposed: proposed, previousTeamMode: store.appliedRoute(category, in: platform)?.teamMode).hasKnownChanges
+                return RouteComparison(current: current, proposed: proposed, previousTeamMode: store.appliedRoute(category, in: platform)?.teamMode).hasKnownChanges || store.hasEscalationChanges(category, in: platform)
             }.count
         }
     }
@@ -286,13 +296,5 @@ private struct KnownChangeSummary: View {
 
 struct RoutingView: View {
     @EnvironmentObject private var store: AppStore
-    var body: some View {
-        if store.enabledPlatforms.isEmpty {
-            PresetChangesView(controller: store.currentSettings)
-        } else {
-            AssignmentTable(platforms: AgentPlatform.allCases.filter { store.enabledPlatforms.contains($0) }, detail: { _ in "" }) { platform, category in
-                RouteRow(currentSettings: store.currentSettings, platform: platform, category: category)
-            }
-        }
-    }
+    var body: some View { PresetChangesView(controller: store.currentSettings) }
 }

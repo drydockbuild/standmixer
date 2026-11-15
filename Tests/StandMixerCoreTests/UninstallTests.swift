@@ -109,7 +109,7 @@ final class UninstallTests: XCTestCase {
         try write(".claude/settings.json", claude)
         let skill = ".agents/skills/standmixer/SKILL.md"
         try write(skill, read(skill) + "\nPersonal edit\n")
-        let worker = ".claude/agents/standmixer-claude-opus-5-5-auto.md"
+        let worker = ".claude/agents/standmixer-claude-opus-5-5-max.md"
         try write(worker, read(worker) + "\nPersonal worker edit\n")
         let preview = try service.previewUninstall()
         XCTAssertEqual(preview.conflicts.count, 4, preview.conflicts.joined(separator: "\n"))

@@ -29,6 +29,7 @@ struct StandMixerApp: App {
         WindowGroup("StandMixer") {
             StandMixerWindow()
                 .environmentObject(store)
+                .onAppear { delegate.store = store }
                 .frame(minWidth: 940, minHeight: 680)
                 .preferredColorScheme(snapshotAppearance)
         }
@@ -43,8 +44,6 @@ struct StandMixerApp: App {
                 Button("Preview Changes…") { store.preparePreview() }
                     .keyboardShortcut("s", modifiers: [.command, .shift])
                     .disabled(store.isPreparingPreview || !store.canPreview)
-                Button("Read Preferences") { store.currentSettings.refreshAll(platforms: store.enabledPlatforms) }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
                 Divider()
                 Button("Restore Applied Settings…") { store.showRestoreConfirmation = true }
                     .disabled(!store.canRestore || store.isEditing)
@@ -55,8 +54,16 @@ struct StandMixerApp: App {
     }
 }
 
+@MainActor
 final class StandMixerApplicationDelegate: NSObject, NSApplicationDelegate {
+    weak var store: AppStore?
+    private var terminationTask: Task<Void, Never>?
+    private var terminationSignal: StandMixerTerminationSignal?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        terminationSignal = StandMixerTerminationSignal {
+            NSApplication.shared.terminate(nil)
+        }
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         let arguments = ProcessInfo.processInfo.arguments
@@ -115,4 +122,52 @@ final class StandMixerApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        terminationReply { sender.reply(toApplicationShouldTerminate: true) }
+    }
+
+    func terminationReply(whenReady: @escaping @MainActor () -> Void) -> NSApplication.TerminateReply {
+        guard terminationTask == nil else { return .terminateLater }
+        guard let store else { return .terminateNow }
+        store.beginTermination()
+        guard store.hasPendingClaudeConnectionCleanup else { return .terminateNow }
+        terminationTask = Task {
+            await store.waitForClaudeConnectionCleanup()
+            whenReady()
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) { terminationSignal?.stop() }
+}
+
+/// Route an ordinary process SIGTERM through the same awaited AppKit shutdown as Quit.
+/// This installs no authentication task and restores the prior signal disposition.
+@MainActor
+final class StandMixerTerminationSignal {
+    private let source: DispatchSourceSignal
+    private let previousHandler: sig_t?
+    private var stopped = false
+
+    init(onTermination: @escaping @MainActor () -> Void) {
+        previousHandler = Darwin.signal(SIGTERM, SIG_IGN)
+        source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { MainActor.assumeIsolated { onTermination() } }
+        source.resume()
+    }
+
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        source.cancel()
+        Darwin.signal(SIGTERM, previousHandler)
+    }
+
+    deinit {
+        if !stopped {
+            source.cancel()
+            Darwin.signal(SIGTERM, previousHandler)
+        }
+    }
 }

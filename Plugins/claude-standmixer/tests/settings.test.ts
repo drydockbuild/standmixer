@@ -1,9 +1,9 @@
 import { expect, test } from 'claude-code/testing';
-import { state, preview, pane } from './fixtures.js';
+import { state, preview, pane, hierarchyState } from './fixtures.js';
 import { reviewPages } from '../hooks/register.js';
-import { recipeKey, matchedPreset, modelIdentity, routeKey } from '../hooks/presentation.js';
+import { recipeKey, matchedPreset, modelIdentity, routeKey, effectiveRoute } from '../hooks/presentation.js';
 
-function harness(on, initial = state(), reviewed = preview(), placements = [true], inspectionGate = null, installGate = null, accountResult = null) {
+function harness(on, initial = state(), reviewed = preview(), placements = [true], installGate = null) {
   const calls = []; const registeredCommands = []; const openedURLs = []; let openingURL = 'http://127.0.0.1:54321/#token=' + 'a'.repeat(43);
   const updateCalls = []; let updateResult = { exitCode: 0, stdout: 'Updated fixture.', stderr: '' };
   let updateCheck = async () => ({ok:true});
@@ -29,15 +29,12 @@ function harness(on, initial = state(), reviewed = preview(), placements = [true
     if (e.argv[0] === '/bin/sh') return { value: { exitCode: 0, stdout: '/fixture/StandMixerHelper\n', stderr: '' } };
     expect(e.argv).toEqual(['/fixture/StandMixerHelper']);
     const request = JSON.parse(e.init.stdin);
+    expect(['inspect', 'checkAccounts'].includes(request.action)).toBe(false);
     calls.push(request);
     if (request.action === 'checkUpdates') return { value: {exitCode:0,stdout:JSON.stringify(await updateCheck()),stderr:''} };
     if (request.action === 'openWeb') return { value: { exitCode: 0, stdout: JSON.stringify({ok: true, web: {url: openingURL}}), stderr: '' } };
     if (request.action === 'openMac') return { value: { exitCode: 0, stdout: JSON.stringify({ok: true, result: {message: 'Mac app opened.'}}), stderr: '' } };
     if (request.action === 'saveDraft' && saveFailure) return { value: { exitCode: 1, stdout: JSON.stringify({ ok: false, error: { message: saveFailure } }), stderr: '' } };
-    if (request.action === 'checkAccounts') {
-      expect(e.init.timeoutMs).toBe(30000);
-      return { value: { exitCode: 0, stdout: JSON.stringify(accountResult || { ok: true, accounts: { checkedAt: '2026-11-03T12:00:00Z', providers: [{ platform: 'claude', status: 'unknown', detail: 'Identity not exposed.' }] } }), stderr: '' } };
-    }
     if (request.action === 'installMac') {
       expect(e.init.timeoutMs).toBe(600000);
       if (installGate) {
@@ -45,11 +42,6 @@ function harness(on, initial = state(), reviewed = preview(), placements = [true
         return { value: { exitCode: 0, stdout: JSON.stringify(await installGate.result), stderr: '' } };
       }
       return { value: { exitCode: 0, stdout: JSON.stringify({ ok: true, result: { message: 'Mac app built locally.', changedFiles: 0, notes: [] } }), stderr: '' } };
-    }
-    if (request.action === 'inspect' && inspectionGate) {
-      expect(e.init.timeoutMs).toBe(120000);
-      inspectionGate.signalStarted();
-      return { value: { exitCode: 0, stdout: JSON.stringify(await inspectionGate.result), stderr: '' } };
     }
     let response;
     if (request.action === 'savePreset') {
@@ -66,10 +58,6 @@ function harness(on, initial = state(), reviewed = preview(), placements = [true
       initial.configuration = { ...request.configuration, enabledPlatforms: request.platforms };
       initial.hasSavedDraft = true;
       response = { ok: true, state: initial, result: { message: 'Draft saved' } };
-    } else if (request.action === 'inspect') {
-      expect(e.init.timeoutMs).toBe(120000);
-      initial.inspection = { createdAt: '2026-11-02T00:00:00Z', expiresAt: '2026-11-02T00:15:00Z', reports: [], fromCache: false };
-      response = { ok: true, inspection: initial.inspection };
     } else response = request.action === 'state' ? { ok: true, state: request.platforms ? { ...initial, enabledPlatforms: request.platforms, presets: state(request.platforms).presets } : initial }
       : request.action.startsWith('preview') ? { ok: true, preview: reviewed }
       : { ok: true, result: { message: 'Applied exactly the reviewed changes.', changedFiles: 1, notes: [] } };
@@ -85,7 +73,7 @@ test('optional version checks do not block editing or change the draft', async (
   const initial={...state(),canCheckUpdates:true};const fixture=harness(on,initial);
   let finish;const result=new Promise(resolve=>{finish=resolve;});fixture.setUpdateCheck(()=>result);
   await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
   finish({ok:true,update:{currentVersion:'0.1.2',latestVersion:'0.2.0'}});
   await Promise.resolve();await Promise.resolve();
   expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
@@ -116,7 +104,7 @@ test('update rejects extra arguments and preserves an in-progress edit', async (
   for(const args of ['update --yes','update --mac extra','update https://example.invalid'])await $.command.run({command:'standmixer',args});
   expect(fixture.updateCalls).toEqual([]);
   await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
   await $.command.run({command:'standmixer',args:'update'});
   expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
   expect(await ui.find({key:'save-edit'})).toBeDefined();expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
@@ -253,11 +241,11 @@ test('native controls and complete three-worker teams render in terminal, Deskto
     await ui.press({ key: 'preset-high' });
     expect(await ui.find({ type: 'Button', key: 'preset-high', text: /High/ })).toBeDefined();
     expect(await ui.find({ type: 'Text', text: 'Fable 5.1' })).toBeDefined();
-    await ui.press({ key: 'edit' });
+    await ui.press({ key: 'edit-ui' });
     expect(await ui.find({ key: 'codex-ui-member-2-model' })).toBeDefined();
     expect(await ui.find({ key: 'edit-task' })).toBeUndefined();
     expect(await ui.find({ key: 'codex-coordinator-add-worker' })).toBeUndefined();
-    const coordinator = await ui.find({ key: 'codex-coordinator-member-0-model' });
+    await ui.press({key:'edit-coordinator'});const coordinator = await ui.find({ key: 'codex-coordinator-member-0-model' });
     expect(coordinator.props.options.some(option => option.value === 'claude-opus-5-5')).toBe(false);
     await ui.press({ key: 'cancel-edit' });
     await ui.unmount();
@@ -288,9 +276,9 @@ test('advanced edits stay local and returning from review discards its apply tok
   const fixture = harness(on);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'terminal' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-ui' });
   await ui.select({ key: 'codex-ui-member-0-model', value: 'gpt-6-astra' });
-  await ui.press({ key: 'codex-ui-add-worker' });
+  await ui.select({key:'codex-ui-team',value:'2'});
   await ui.select({ key: 'codex-ui-member-1-model', value: 'claude-fable-5-1' });
   await ui.select({ key: 'codex-ui-member-1-effort', value: 'fixed' });
   await ui.select({ key: 'codex-ui-member-1-level', value: 'max' });
@@ -308,7 +296,7 @@ test('disabling a provider adapts the selected factory preset before direct Revi
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   await ui.press({ key: 'preset-high' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-coordinator' });
   await ui.press({ key: 'more' });
   await ui.press({ key: 'provider-codex' });
   expect(fixture.calls[1]).toEqual({ action: 'state', platforms: ['claude'] });
@@ -325,7 +313,7 @@ test('custom assignments survive toggles, show unavailable models, and block Rev
   const fixture = harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-implementation' });
   await ui.press({ key: 'more' });
   await ui.press({ key: 'provider-codex' });
   const picker = await ui.find({ key: 'claude-implementation-member-0-model' });
@@ -336,9 +324,9 @@ test('custom assignments survive toggles, show unavailable models, and block Rev
   expect(await ui.find({ type: 'Text', text: /Some assignments use a disabled provider/ })).toBeDefined();
   expect(await ui.find({ key: 'apply-reviewed' })).toBeUndefined();
   expect(fixture.calls.map(call => call.action)).toEqual(['state', 'state', 'saveDraft']);
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-implementation' });
   await ui.select({ key: 'claude-implementation-member-0-model', value: 'claude-fable-5-1' });
-  await ui.press({ key: 'claude-implementation-add-worker' });
+  await ui.select({key:'claude-implementation-team',value:'2'});
   await ui.select({ key: 'claude-implementation-result-mode', value: 'ai' });
   const judges = await ui.find({ key: 'claude-implementation-judge-model' });
   expect(judges.props.options.some(option => option.value.startsWith('gpt-'))).toBe(false);
@@ -351,12 +339,12 @@ test('Advanced matches the core limit of three additional workers', async ($, on
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   await ui.press({ key: 'preset-high' });
-  await ui.press({ key: 'edit' });
-  await ui.press({ key: 'codex-ui-add-worker' });
+  await ui.press({ key: 'edit-ui' });
+  await ui.select({key:'codex-ui-team',value:'4'});
   expect(await ui.find({ key: 'codex-ui-member-3-model' })).toBeDefined();
   expect(await ui.find({ key: 'codex-ui-add-worker' })).toBeUndefined();
   await ui.press({ key: 'codex-ui-member-3-remove' });
-  expect(await ui.find({ key: 'codex-ui-add-worker' })).toBeDefined();
+  expect((await ui.find({key:'codex-ui-team'})).props.value).toBe('3');
 });
 
 test('restore and removal remain inside More and review before changing files', async ($, on) => {
@@ -417,19 +405,19 @@ test('persisted recipes select the matching factory card without claiming they a
   harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High');
+  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High-quality');
   expect((await ui.find({ key: 'preset-fast' })).props.label).toBe('Fast');
   expect(await ui.find({ type: 'Text', text: 'No preset applied' })).toBeDefined();
   expect(await ui.find({ type: 'Text', text: /Saved draft/ })).toBeUndefined();
   expect(await ui.find({ type: 'Text', text: 'Changed' })).toBeUndefined();
-  expect((await ui.findAll({ type: 'Svg' })).length > 7).toBe(true);
+  expect((await ui.findAll({type:'Svg'})).some(node=>node.props.alt==='StandMixer')).toBe(true);expect((await ui.findAll({type:'Svg'})).some(node=>String(node.props.alt).startsWith('Model level'))).toBe(false);
 });
 
 test('model family levels match Mac identities and unknown custom models remain unrated', () => {
-  const ratings = [['luna', 'codex', 1], ['haiku', 'claude', 1], ['terra', 'codex', 2], ['sonnet', 'claude', 2], ['sol', 'codex', 3], ['astra', 'codex', 4], ['opus', 'claude', 4]];
+  const ratings = [['luna', 'codex', 1], ['haiku', 'claude', 1], ['terra', 'codex', 1], ['sonnet', 'claude', 2], ['sol', 'codex', 2], ['astra', 'codex', 3], ['opus', 'claude', 3]];
   for (const [id, platform, level] of ratings) expect(modelIdentity({ id, platform }).level).toBe(level);
-  expect(modelIdentity({ id: 'claude-fable-5-1', platform: 'claude' }).level).toBe(4);
-  expect(modelIdentity({ id: 'claude-fable-5-2', platform: 'claude' }).level).toBe(4);
+  expect(modelIdentity({ id: 'claude-fable-5-1', platform: 'claude' }).level).toBe(3);
+  expect(modelIdentity({ id: 'claude-fable-5-2', platform: 'claude' }).level).toBe(3);
   expect(modelIdentity({ id: 'claude-fable-9', platform: 'claude' }).level).toBe(0);
   expect(modelIdentity({ id: 'custom-sol-powered', label: 'My Sol experiment', platform: 'codex' }).level).toBe(0);
   expect(modelIdentity({ id: 'gpt-6.1-sol', platform: 'claude' }).level).toBe(0);
@@ -481,7 +469,7 @@ test('drifted receipt cannot stand in for current worker truth', async ($, on) =
   expect(await ui.find({ key: 'current-codex-ui' })).toBeUndefined();
   expect(await ui.find({ key: 'current-codex-coordinator' })).toBeUndefined();
   await ui.press({ key: 'more' });
-  expect(await ui.find({ type: 'Text', text: 'Saved global default: gpt-6-luna · Low' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Existing global default: gpt-6-luna · Low' })).toBeDefined();
   expect(await ui.find({ type: 'Text', text: '/fixture/.codex/config.toml' })).toBeDefined();
 });
 
@@ -495,7 +483,7 @@ test('saved presets retain the local draft and delete requires its concrete conf
   await ui.press({ key: 'confirm-save-preset' });
   expect(fixture.calls[1].action).toBe('savePreset');
   expect(fixture.calls[1].name).toBe('My high team');
-  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High');
+  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High-quality');
   expect((await ui.find({ key: 'saved-presets' })).props.value).toBe('00000000-0000-4000-8000-000000000001');
   await ui.press({ key: 'delete-preset' });
   expect(fixture.calls.length).toBe(2);
@@ -504,7 +492,7 @@ test('saved presets retain the local draft and delete requires its concrete conf
   await ui.press({ key: 'delete-preset' });
   await ui.press({ key: 'confirm-delete-preset' });
   expect(fixture.calls[2]).toEqual({ action: 'deletePreset', presetID: '00000000-0000-4000-8000-000000000001' });
-  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High');
+  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High-quality');
   expect(await ui.find({ key: 'saved-presets' })).toBeUndefined();
   expect(fixture.calls.some(call => call.action === 'apply')).toBe(false);
 });
@@ -514,10 +502,10 @@ test('save draft exposes previous draft without applying either recipe', async (
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   await ui.press({ key: 'preset-high' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-coordinator' });
   await ui.press({ key: 'save-edit' });
   expect(fixture.calls[1].action).toBe('saveDraft');
-  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High');
+  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High-quality');
   await ui.press({ key: 'previous-draft' });
   expect((await ui.find({ key: 'preset-optimized' })).props.label).toBe('✓ Optimized');
   expect(fixture.calls.map(call => call.action)).toEqual(['state', 'saveDraft']);
@@ -527,7 +515,7 @@ test('custom models use explicit provider, native coordinators, and supported ef
   const fixture = harness(on);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-coordinator' });
   await ui.press({ key: 'custom-models' });
   await ui.input({ key: 'custom-model-id', text: 'private-codex-model', kind: 'change' });
   await ui.input({ key: 'custom-model-label', text: 'Private model', kind: 'change' });
@@ -550,7 +538,7 @@ test('removing an unused saved custom model removes it from the draft catalog', 
   harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-coordinator' });
   await ui.press({ key: 'custom-models' });
   await ui.press({ key: 'remove-custom-private-unused' });
   expect((await ui.find({ key: 'codex-coordinator-member-0-model' })).props.options.some(option => option.value === 'private-unused')).toBe(false);
@@ -562,7 +550,7 @@ test('narrow native panes keep both providers and every task editable inline', a
   for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
     const ui = await $.ui.mount({ ...pane, surface, props: { ...pane.props, bodyColumns: 42 } });
     await ui.press({ key: 'preset-high' });
-    await ui.press({ key: 'edit' });
+    await ui.press({ key: 'edit-ui' });
     expect(await ui.find({ key: 'row-coordinator' })).toBeDefined();
     expect(await ui.find({ key: 'row-mechanical' })).toBeDefined();
     expect(await ui.find({ key: 'claude-ui-member-2-model' })).toBeDefined();
@@ -573,34 +561,57 @@ test('narrow native panes keep both providers and every task editable inline', a
   }
 });
 
-test('preference inspection is cached, bounded, and only manually refreshed', async ($, on) => {
+test('Sources reads existing defaults and keeps local tool details collapsed until requested', async ($, on) => {
   const current = state();
-  delete current.inspection;
+  current.connections = [{ platform: 'codex', isInstalled: true, version: 'codex 1.2.3', path: '/fixture/codex' }];
+  current.nativeSettings = [{ platform: 'codex', status: 'known', modelID: 'gpt-6-luna', effort: 'low', sourcePath: '/fixture/config.toml', detail: 'Saved global defaults' }];
   const fixture = harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
-  expect(fixture.calls.map(call => call.action)).toEqual(['state']);
-  await $.command.run({ command: 'standmixer', args: '' });
-  expect(fixture.calls.map(call => call.action)).toEqual(['state', 'state']);
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   await ui.press({ key: 'more' });
-  await ui.press({ key: 'refresh-preferences' });
-  expect(fixture.calls[2]).toEqual({ action: 'inspect', platforms: ['codex', 'claude'], refresh: true });
+  expect(await ui.find({ type: 'Text', text: 'codex 1.2.3' })).toBeUndefined();
+  expect(await ui.find({ type: 'Text', text: '/fixture/codex' })).toBeUndefined();
+  expect(await ui.find({ type: 'Text', text: 'Existing global default: gpt-6-luna · Low' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: '/fixture/config.toml' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Read-only view of existing global defaults/ })).toBeDefined();
+  await ui.press({ key: 'tool-details-codex' });
+  expect(await ui.find({ type: 'Text', text: 'codex 1.2.3' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: '/fixture/codex' })).toBeDefined();
+  await ui.press({ key: 'tool-details-codex' });
+  expect(await ui.find({ type: 'Text', text: 'codex 1.2.3' })).toBeUndefined();
+  expect(fixture.calls.map(call => call.action)).toEqual(['state']);
+  expect(await ui.find({ key: 'check-accounts' })).toBeUndefined();
+  expect(await ui.find({ key: 'refresh-preferences' })).toBeUndefined();
+  expect(await ui.find({ type: 'Text', text: /CLI account|Reading preferences|Current & usual preferences/ })).toBeUndefined();
+  await ui.press({ key: 'refresh' });
+  await ui.press({ key: 'provider-codex' });
+  await ui.press({ key: 'preset-high' });
+  await ui.press({ key: 'edit-ui' });
+  await ui.select({ key: 'claude-ui-member-0-model', value: 'claude-fable-5-1' });
+  await saveAndReview(ui);
+  expect(fixture.calls.map(call => call.action)).toEqual(['state', 'state', 'state', 'saveDraft', 'preview']);
+  expect(fixture.calls.at(-1).configuration.profiles.find(profile => profile.platform === 'claude').routes.find(route => route.category === 'ui').modelID).toBe('claude-fable-5-1');
 });
 
-test('observed usual preferences expose evidence without becoming current truth or changing the draft', async ($, on) => {
+test('legacy reports and account metadata never appear or supply current comparisons', async ($, on) => {
   const current = state();
-  current.inspection.reports = [{ platform: 'codex', status: 'partial', summary: 'Found a usual Visual preference',
-    routes: [{ category: 'ui', modelID: 'gpt-6-luna', scope: 'usual', evidence: [{ path: '/fixture/AGENTS.md', explanation: 'Visual preference' }], uncertainties: ['Effort unspecified'] }], notes: [], sources: [{ path: '/fixture/AGENTS.md' }] }];
+  current.configuration.profiles[0].routes[0].modelID = 'gpt-6.1-sol';
+  current.nativeSettings = [{ platform: 'codex', status: 'known', modelID: 'gpt-6-luna', effort: 'low', sourcePath: '/fixture/config.toml', detail: 'Saved global defaults' }];
+  current.inspection = { expiresAt: '2099-01-01T00:00:00Z', reports: [{ platform: 'codex', status: 'complete', summary: 'Legacy report',
+    routes: [{ category: 'ui', modelID: 'gpt-6-astra', scope: 'usual', evidence: [{ path: '/fixture/legacy.md' }], uncertainties: ['Legacy uncertainty'] },
+      { category: 'coordinator', modelID: 'gpt-6-astra', scope: 'current', evidence: [], uncertainties: [] }], sources: [] }] };
+  current.accounts = { providers: [{ platform: 'codex', status: 'signedIn', email: 'legacy-account@example.test' }] };
   const fixture = harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   expect(await ui.find({ key: 'current-codex-ui' })).toBeUndefined();
-  expect(await ui.find({ type: 'Text', text: 'Changed' })).toBeUndefined();
+  await ui.press({ key: 'current-codex-coordinator' });
+  expect(await ui.find({ type: 'Text', text: 'Luna 6 · Low' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Legacy|Observed preference|Usual preference/ })).toBeUndefined();
   await ui.press({ key: 'more' });
-  expect(await ui.find({ type: 'Text', text: /fixture\/AGENTS.md/ })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'Effort unspecified' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: /Legacy|legacy-account|legacy.md|CLI account/ })).toBeUndefined();
   await saveAndReview(ui);
-  expect(fixture.calls[1].configuration.profiles[0].routes.find(route => route.category === 'ui').modelID).toBe('gpt-6.1-sol');
+  expect(fixture.calls[1].configuration).toEqual(current.configuration);
 });
 
 test('loading a saved provider subset refreshes factory matches without replacing its recipe', async ($, on) => {
@@ -612,7 +623,7 @@ test('loading a saved provider subset refreshes factory matches without replacin
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   await ui.select({ key: 'saved-presets', value: current.savedPresets[0].id });
   expect(fixture.calls[1]).toEqual({ action: 'state', platforms: ['claude'] });
-  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High');
+  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High-quality');
   await saveAndReview(ui);
   expect(fixture.calls[2].configuration).toEqual(saved);
   expect(fixture.calls[2].platforms).toEqual(['claude']);
@@ -625,7 +636,7 @@ test('an obsolete effort is visible and repairable instead of silently changed o
   const fixture = harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-coordinator' });
   const picker = await ui.find({ key: 'claude-coordinator-member-0-level' });
   expect(picker.props.value).toBe('max');
   expect(picker.props.options.find(option => option.value === 'max').label).toBe('Max · unsupported');
@@ -634,113 +645,13 @@ test('an obsolete effort is visible and repairable instead of silently changed o
   expect(fixture.calls[1].configuration.profiles[1].routes[0].effort.value).toBe('high');
 });
 
-function deferredInspection() {
-  const gate = {};
-  gate.started = new Promise(resolve => { gate.signalStarted = resolve; });
-  gate.result = new Promise(resolve => { gate.finish = resolve; });
-  return gate;
-}
-function delayedInspectionResult() {
-  return { ok: true, inspection: { createdAt: '2026-11-02T00:00:00Z', expiresAt: '2026-11-02T01:00:00Z', fromCache: false,
-    reports: [{ platform: 'claude', status: 'complete', summary: 'Delayed old preference', routes: [{ category: 'ui', modelID: 'claude-haiku-5-5', scope: 'usual', evidence: [{ path: '/fixture/old-AGENTS.md', explanation: 'Old preference' }], uncertainties: [] }], notes: [], sources: [{ path: '/fixture/old-AGENTS.md' }] }] } };
-}
-
-test('inspection keeps presets, inline editing, review, and Apply usable while pending', async ($, on) => {
-  const current = state(); delete current.inspection;
-  const gate = deferredInspection(), fixture = harness(on, current, preview(), [true], gate);
-  await $.command.run({ command: 'standmixer', args: '' });
-  const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'more' });
-  const opening = ui.press({ key: 'refresh-preferences' });
-  await gate.started;
-  expect(await ui.find({ type: 'Text', text: 'Reading current preferences…' })).toBeDefined();
-  expect(await ui.find({ key: 'review' })).toBeDefined();
-  await ui.press({ key: 'preset-high' });
-  await ui.press({ key: 'edit' });
-  await ui.select({ key: 'codex-ui-member-0-model', value: 'gpt-6-astra' });
-  await saveAndReview(ui);
-  expect(fixture.calls[2].configuration.profiles[0].routes.find(route => route.category === 'ui').modelID).toBe('gpt-6-astra');
-  expect(await ui.find({ key: 'apply-reviewed' })).toBeDefined();
-  await ui.press({ key: 'apply-reviewed' });
-  expect(fixture.calls.find(call => call.action === 'apply')).toEqual({ action: 'apply', previewID: 'reviewed-exact-id' });
-  gate.finish(delayedInspectionResult());
-  await opening;
-  await ui.press({ key: 'more' });
-  expect(await ui.find({ type: 'Text', text: 'Delayed old preference' })).toBeUndefined();
-  expect(await ui.find({ type: 'Text', text: 'Reading current preferences…' })).toBeUndefined();
-  expect(fixture.calls.map(call => call.action)).toEqual(['state', 'inspect', 'saveDraft', 'preview', 'apply', 'state']);
-});
-
-test('late inspection after a provider change is discarded without touching its adapted draft', async ($, on) => {
-  const current = state(); delete current.inspection;
-  const gate = deferredInspection(), fixture = harness(on, current, preview(), [true], gate);
-  await $.command.run({ command: 'standmixer', args: '' });
-  const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'more' });
-  const opening = ui.press({ key: 'refresh-preferences' });
-  await gate.started;
-  await ui.press({ key: 'provider-codex' });
-  expect(fixture.calls[2]).toEqual({ action: 'state', platforms: ['claude'] });
-  gate.finish(delayedInspectionResult());
-  await opening;
-  expect(await ui.find({ type: 'Text', text: /Delayed old preference/ })).toBeUndefined();
-  await saveAndReview(ui);
-  expect(fixture.calls[3].platforms).toEqual(['claude']);
-  expect(fixture.calls[3].configuration).toEqual(state(['claude']).presets.find(preset => preset.id === 'optimized').configuration);
-});
-
-test('inspection failures stay in Sources while native settings and editing remain usable', async ($, on) => {
-  const current = state(); delete current.inspection;
-  const gate = deferredInspection(), fixture = harness(on, current, preview(), [true], gate);
-  await $.command.run({ command: 'standmixer', args: '' });
-  const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'more' });
-  const opening = ui.press({ key: 'refresh-preferences' });
-  await gate.started;
-  await ui.press({ key: 'more' });
-  await ui.press({ key: 'preset-high' });
-  gate.finish({ ok: false, error: { code: 'timeout', message: 'Reader timed out.' } });
-  await opening;
-  expect((await ui.find({ key: 'preset-high' })).props.label).toBe('✓ High');
-  expect(await ui.find({ type: 'Text', text: /Reader timed out/ })).toBeUndefined();
-  expect(await ui.find({ key: 'review' })).toBeDefined();
-  await ui.press({ key: 'more' });
-  expect(await ui.find({ type: 'Text', text: 'Preferences unavailable: Reader timed out.' })).toBeDefined();
-  expect(await ui.find({ key: 'refresh-preferences' })).toBeDefined();
-  await saveAndReview(ui);
-  expect(fixture.calls[2].configuration).toEqual(state().presets.find(preset => preset.id === 'high').configuration);
-});
-
-test('preset commands never inspect and an explicit later read cannot change the draft', async ($, on) => {
-  const current = state(); delete current.inspection;
-  const gate = deferredInspection(), fixture = harness(on, current, preview(), [true], gate);
-  await $.command.run({ command: 'standmixer', args: 'high' });
-  expect(fixture.calls.map(call => call.action)).toEqual(['state', 'preview']);
-  const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  expect(await ui.find({ key: 'apply-reviewed' })).toBeDefined();
-  await ui.press({ key: 'review-back' });
-  await ui.press({ key: 'more' });
-  const opening = ui.press({ key: 'refresh-preferences' });
-  await gate.started;
-  await ui.press({ key: 'more' });
-  expect(fixture.calls.map(call => call.action)).toEqual(['state', 'preview', 'inspect']);
-  await ui.press({ key: 'preset-fast' });
-  gate.finish(delayedInspectionResult());
-  await opening;
-  expect((await ui.find({ key: 'preset-fast' })).props.label).toBe('✓ Fast');
-  expect(await ui.find({ key: 'apply-reviewed' })).toBeUndefined();
-  expect(await ui.find({ key: 'current-claude-ui' })).toBeUndefined();
-  await ui.press({ key: 'more' });
-  expect(await ui.find({ type: 'Text', text: 'Delayed old preference' })).toBeDefined();
-});
-
 test('a missing catalog model stays visible and repairable in the inline editor', async ($, on) => {
   const current = state();
   current.configuration.profiles[0].routes.find(route => route.category === 'ui').modelID = 'formerly-discovered-model';
   const fixture = harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-ui' });
   const picker = await ui.find({ key: 'codex-ui-member-0-model' });
   expect(picker.props.value).toBe('formerly-discovered-model');
   expect(picker.props.options.find(option => option.value === 'formerly-discovered-model').label).toContain('currently unavailable');
@@ -763,7 +674,7 @@ function terminalLogicalRows(node) {
     + (props.marginTop ?? props.marginY ?? props.margin ?? 0) + (props.marginBottom ?? props.marginY ?? props.margin ?? 0);
 }
 
-test('terminal draws every task glyph and High worker strength within a compact main-view row budget', async ($, on) => {
+test('terminal renders comparison rows and quiet Auto effort without SVG or strength ratings', async ($, on) => {
   const current = state();
   const high = current.presets.find(preset => preset.id === 'high').configuration;
   const workers = {
@@ -780,11 +691,9 @@ test('terminal draws every task glyph and High worker strength within a compact 
   const ui = await $.ui.mount({ ...pane, surface: 'terminal', viewport: { columns: 168, rows: 70, isFullscreen: true }, props: { ...pane.props, bodyColumns: 74 } });
   await ui.press({ key: 'preset-high' });
   expect(await ui.find({ type: 'Svg' })).toBeUndefined();
-  for (const glyph of ['◎', '↗', '▣', '‹›', '◇', '✓', '⌁']) expect(await ui.find({ type: 'Text', text: glyph })).toBeDefined();
-  expect((await ui.findAll({ type: 'Text', text: /^[▂▄▆█]+$/ })).length).toBe(26);
-  expect((await ui.findAll({ type: 'Text', text: '▂▄▆█' })).length).toBe(24);
-  for (const task of ['coordinator', 'planning', 'ui', 'implementation', 'algorithms', 'review', 'mechanical']) expect((await ui.find({ key: 'row-' + task })).props.paddingY).toBe(0);
-  expect(terminalLogicalRows(await ui.drawn()) <= fixture.openOptions[0].rows).toBe(true);
+  expect((await ui.findAll({type:'Text',text:'Auto'})).length > 0).toBe(true);
+  for(const task of ['coordinator','planning','ui','implementation','algorithms','review','mechanical'])expect((await ui.find({key:'row-'+task})).props.paddingY).toBe(0);
+  expect(await ui.find({type:'Select'})).toBeUndefined();
 });
 
 test('Controller Auto shows the current-model policy and hides effort while preserving native pins', async ($, on) => {
@@ -795,9 +704,9 @@ test('Controller Auto shows the current-model policy and hides effort while pres
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   expect(await ui.find({ type: 'Text', text: 'Controller' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'Current model' })).toBeDefined();
+  expect(await ui.find({ type: 'Text', text: 'Current model and effort' })).toBeDefined();
   expect(await ui.find({ key: 'current-codex-coordinator' })).toBeUndefined();
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-coordinator' });
   const model = await ui.find({ key: 'codex-coordinator-member-0-model' });
   expect(model.props.options[0]).toEqual({ value: 'auto', label: 'Auto · Current model' });
   expect(await ui.find({ key: 'codex-coordinator-member-0-effort' })).toBeUndefined();
@@ -820,9 +729,9 @@ test('Controller Auto compares a verified pinned policy and is absent from worke
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   expect(await ui.find({ key: 'current-codex-coordinator' })).toBeDefined();
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-ui' });
   expect((await ui.find({ key: 'codex-ui-member-0-model' })).props.options.some(option => option.value === 'auto')).toBe(false);
-  await ui.press({ key: 'codex-ui-add-worker' });
+  await ui.select({key:'codex-ui-team',value:'2'});
   await ui.select({ key: 'codex-ui-result-mode', value: 'ai' });
   const judge = await ui.find({ key: 'codex-ui-judge-model' });
   expect(judge.props.options.some(option => option.value === 'auto')).toBe(false);
@@ -844,7 +753,7 @@ test('a local Mac build leaves settings and pane dismissal available and prevent
   let resolveInstall, signalStarted;
   const started = new Promise(resolve => { signalStarted = resolve; });
   const result = new Promise(resolve => { resolveInstall = resolve; });
-  const fixture = harness(on, state(), preview(), [true], null, { signalStarted, result });
+  const fixture = harness(on, state(), preview(), [true], { signalStarted, result });
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
   await ui.press({ key: 'more' });
@@ -854,7 +763,7 @@ test('a local Mac build leaves settings and pane dismissal available and prevent
   expect(await ui.find({ type: 'Text', text: 'Building Mac app…' })).toBeDefined();
   expect(await ui.find({ key: 'edit' })).toBeDefined();
   expect(await ui.find({ key: 'close' })).toBeDefined();
-  await ui.press({ key: 'edit' });
+  await ui.press({ key: 'edit-ui' });
   expect(await ui.find({ key: 'codex-ui-member-0-model' })).toBeDefined();
   resolveInstall({ ok: true, result: { message: 'Mac app built locally.', changedFiles: 0, notes: [] } });
   await installing;
@@ -863,80 +772,32 @@ test('a local Mac build leaves settings and pane dismissal available and prevent
   expect(await ui.find({ type: 'Text', text: 'Building Mac app…' })).toBeUndefined();
 });
 
-test('explicit CLI account checks show identity without guessing the Desktop sign-in or using inference', async ($, on) => {
-  const accountResult = { ok: true, accounts: { checkedAt: '2026-11-03T12:00:00Z', providers: [
-    { platform: 'claude', status: 'signedIn', email: 'cli-user@example.test', subscription: 'Max', detail: 'Public CLI status', cliPath: '/fixture/claude' },
-    { platform: 'codex', status: 'unknown', detail: 'Identity is not exposed by this CLI.' },
-  ] } };
-  const fixture = harness(on, state(), preview(), [true], null, null, accountResult);
-  await $.command.run({ command: 'standmixer', args: '' });
-  const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  expect(fixture.calls.map(call => call.action)).toEqual(['state']);
-  expect(await ui.find({ key: 'check-accounts' })).toBeUndefined();
-  await ui.press({ key: 'more' });
-  expect(await ui.find({ type: 'Text', text: 'CLI account · Not checked' })).toBeDefined();
-  await ui.press({ key: 'check-accounts' });
-  expect(fixture.calls[1]).toEqual({ action: 'checkAccounts' });
-  expect(await ui.find({ type: 'Text', text: 'CLI account · Signed in' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'cli-user@example.test' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'Plan: Max' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'CLI account · Unknown' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'CLI account · Signed out' })).toBeUndefined();
-  expect(await ui.find({ type: 'Text', text: 'CLI-launched workers use this sign-in. Claude Desktop may use a different account.' })).toBeDefined();
-  expect(await ui.find({ key: 'review' })).toBeDefined();
-});
-
-test('signed-out account status is separate from unknown and keeps settings usable', async ($, on) => {
-  const fixture = harness(on, state(), preview(), [true], null, null, { ok: true, accounts: { checkedAt: '2026-11-03T12:00:00Z', providers: [{ platform: 'claude', status: 'signedOut', detail: 'Sign in with the CLI, then check again.' }] } });
-  await $.command.run({ command: 'standmixer', args: '' });
-  const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'more' });
-  await ui.press({ key: 'check-accounts' });
-  expect(await ui.find({ type: 'Text', text: 'CLI account · Signed out' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'Sign in with the CLI, then check again.' })).toBeDefined();
-  await ui.press({ key: 'edit' });
-  expect(await ui.find({ key: 'codex-ui-member-0-model' })).toBeDefined();
-  expect(fixture.calls.map(call => call.action)).toEqual(['state', 'checkAccounts']);
-});
-
-test('failed account checks report unknown and never imply a signed-out CLI', async ($, on) => {
-  harness(on, state(), preview(), [true], null, null, { ok: false, error: { message: 'Public account status is unavailable.' } });
-  await $.command.run({ command: 'standmixer', args: '' });
-  const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'more' });
-  await ui.press({ key: 'check-accounts' });
-  expect(await ui.find({ type: 'Text', text: 'CLI account · Unknown' })).toBeDefined();
-  expect(await ui.find({ type: 'Text', text: 'CLI account · Signed out' })).toBeUndefined();
-  expect(await ui.find({ type: 'Text', text: 'Public account status is unavailable.' })).toBeDefined();
-  expect(await ui.find({ key: 'check-accounts' })).toBeDefined();
-});
-
 test('Advanced team mode changes review behavior without changing ordered model selections', async ($, on) => {
   const fixture = harness(on);
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  await ui.press({ key: 'edit' }); await ui.press({ key: 'codex-ui-add-worker' });
+  await ui.press({ key: 'edit-ui' }); await ui.select({key:'codex-ui-team',value:'2'});
   const before = (await ui.find({ key: 'codex-ui-member-0-model' })).props.value;
   await ui.select({ key: 'codex-ui-team-mode', value: 'leadReview' });
-  expect((await ui.find({ key: 'codex-ui-member-0-model' })).props.label).toBe('Lead');
-  expect((await ui.find({ key: 'codex-ui-member-1-model' })).props.label).toBe('Reviewer 1');
+  expect((await ui.find({ key: 'codex-ui-member-0-model' })).props.label).toBe('Codex Design & UI Model');
+  expect((await ui.find({ key: 'codex-ui-member-1-model' })).props.label).toBe('Codex Design & UI Worker 2 Model');
   await saveAndReview(ui);
   const route = fixture.calls.find(call => call.action === 'preview').configuration.profiles[0].routes.find(route => route.category === 'ui');
   expect(route.teamMode).toBe('leadReview'); expect(route.modelID).toBe(before); expect(route.additionalAgents.length).toBe(1);
 });
 
-test('Edit makes every row editable; Cancel restores the draft with no writes', async ($, on) => {
+test('Edit opens only one comparison row; Cancel restores the draft with no writes', async ($, on) => {
   const initial = state(), before = JSON.parse(JSON.stringify(initial.configuration));initial.installation={...initial.installation,state:'applied',hasInstallation:true,installedPlatforms:['codex','claude'],appliedConfiguration:JSON.parse(JSON.stringify(before))};initial.installation.appliedConfiguration.profiles[0].routes.find(route=>route.category==='implementation').modelID='gpt-6-luna';const fixture = harness(on, initial);
   await $.command.run({ command: 'standmixer', args: '' });const ui = await $.ui.mount({ ...pane, surface: 'desktop' });
-  expect((await ui.find({ key: 'edit' })).props.label).toBe('Edit…');await ui.press({ key: 'edit' });
+  expect((await ui.find({ key: 'edit' })).props.label).toBe('Edit…');await ui.press({ key: 'edit-implementation' });
   expect(await ui.find({ key: 'save-edit' })).toBeDefined();expect(await ui.find({ key: 'save-draft' })).toBeUndefined();expect(await ui.find({ key: 'review' })).toBeUndefined();
-  for (const platform of ['codex','claude']) for (const task of ['coordinator','planning','ui','implementation','algorithms','review','mechanical']) expect(await ui.find({ key: platform + '-' + task + '-member-0-model' })).toBeDefined();
-  expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6-astra' });expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();expect((await ui.find({key:'editor-codex-implementation'})).props.borderColor).toBe('#6fb3b8');await ui.press({key:'undo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({key:'redo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6.1-sol' });expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({key:'codex-implementation-member-0-effort',value:'fixed'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({key:'codex-implementation-member-0-effort',value:'auto'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({ key: 'preset-high' });
-  await ui.press({ key: 'cancel-edit' });expect(fixture.calls.map(call=>call.action)).toEqual(['state']);await ui.press({key:'edit'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({key:'cancel-edit'});await ui.press({ key: 'review' });expect(fixture.calls[1].configuration).toEqual(before);
+  for(const platform of ['codex','claude'])expect(await ui.find({key:platform+'-implementation-member-0-model'})).toBeDefined();expect(await ui.find({key:'codex-ui-member-0-model'})).toBeUndefined();
+  expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6-astra' });expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();expect(await ui.find({key:'editor-codex-implementation'})).toBeDefined();await ui.press({key:'undo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({key:'redo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6.1-sol' });expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({key:'codex-implementation-member-0-effort',value:'fixed'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({key:'codex-implementation-member-0-effort',value:'auto'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({ key: 'preset-high' });
+  await ui.press({ key: 'cancel-edit' });expect(fixture.calls.map(call=>call.action)).toEqual(['state']);await ui.press({key:'edit-coordinator'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({key:'cancel-edit'});await ui.press({ key: 'review' });expect(fixture.calls[1].configuration).toEqual(before);
 });
 test('Save writes only the draft and exits; failed Save keeps edits and Cancel intact', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'save-edit'});
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'save-edit'});
   expect(await ui.find({key:'save-edit'})).toBeDefined();expect(await ui.find({key:'cancel-edit'})).toBeDefined();expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
   fixture.setSaveFailure(null);await ui.press({key:'save-edit'});expect(await ui.find({key:'save-edit'})).toBeUndefined();expect(await ui.find({key:'edit'})).toBeDefined();expect(fixture.calls.map(call=>call.action)).toEqual(['state','saveDraft','saveDraft']);
 });
@@ -949,7 +810,7 @@ test('canonical StandMixer command shows the mixer and explicit interfaces witho
 });
 test('explicit Web and Mac opening leaves the native Edit draft intact', async ($, on) => {
   const initial=state();initial.installedMac={isAvailable:true,detail:'Owned fixture app'};const fixture=harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'interfaces'});expect((await ui.find({key:'interface-mac'})).props.label).toBe('Mac · Open');await ui.press({key:'interface-web'});await ui.press({key:'interface-mac'});
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'interfaces'});expect((await ui.find({key:'interface-mac'})).props.label).toBe('Mac · Open');await ui.press({key:'interface-web'});await ui.press({key:'interface-mac'});
   expect(fixture.calls.map(x=>x.action)).toEqual(['state','openWeb','openMac']);expect(fixture.openedURLs).toEqual(['http://127.0.0.1:54321/#token='+'a'.repeat(43)]);expect(await ui.find({key:'save-edit'})).toBeDefined();expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');await ui.press({key:'cancel-edit'});
 });
 test('native Web opening rejects untrusted addresses before invoking the system opener', async ($, on) => {
@@ -959,22 +820,22 @@ test('native Web opening rejects untrusted addresses before invoking the system 
 
 test('draft Undo and Redo stay local while editing and survive Save without applying native settings', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'undo-draft'});expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.1-sol');expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'undo-draft'});expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.1-sol');expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
   await ui.press({key:'redo-draft'});expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');await ui.press({key:'save-edit'});await ui.press({key:'undo-draft'});expect(fixture.calls[2].configuration.profiles[0].routes.find(x=>x.category==='implementation').modelID).toBe('gpt-6.1-sol');await ui.press({key:'redo-draft'});expect(fixture.calls.map(x=>x.action)).toEqual(['state','saveDraft','saveDraft','saveDraft']);
 });
 test('Cancel restores the Undo history from Edit entry and repeated selections add no history', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'preset-optimized'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();await ui.press({key:'preset-fast'});await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'undo-draft'});await ui.press({key:'cancel-edit'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();await ui.press({key:'undo-draft'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
+  await ui.press({key:'preset-optimized'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();await ui.press({key:'preset-fast'});await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'undo-draft'});await ui.press({key:'cancel-edit'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();await ui.press({key:'undo-draft'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
 });
 test('failed saved Undo keeps its history for retry and successful Apply clears it', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'save-edit'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();expect((await ui.find({key:'undo-draft'})).props.dimColor).toBe(false);fixture.setSaveFailure(null);await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeDefined();await ui.press({key:'review'});await ui.press({key:'apply-reviewed'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(await ui.find({key:'redo-draft'})).toBeUndefined();
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'save-edit'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();expect((await ui.find({key:'undo-draft'})).props.dimColor).toBe(false);fixture.setSaveFailure(null);await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeDefined();await ui.press({key:'review'});await ui.press({key:'apply-reviewed'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(await ui.find({key:'redo-draft'})).toBeUndefined();
 });
 
 test('Redo of an unsaved native change never saves merely because Undo reached the saved baseline', async ($, on) => {
   const initial=state();initial.hasSavedDraft=true;const fixture=harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
   await ui.press({key:'preset-fast'});await ui.press({key:'undo-draft'});await ui.press({key:'redo-draft'});expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
-  await ui.press({key:'undo-draft'});await ui.press({key:'edit'});await ui.press({key:'save-edit'});await ui.press({key:'redo-draft'});expect(fixture.calls.map(x=>x.action)).toEqual(['state','saveDraft']);
+  await ui.press({key:'undo-draft'});await ui.press({key:'edit-coordinator'});await ui.press({key:'save-edit'});await ui.press({key:'redo-draft'});expect(fixture.calls.map(x=>x.action)).toEqual(['state','saveDraft']);
 });
 
 
@@ -984,7 +845,9 @@ test('Connections shows version and Check now explicitly refreshes without apply
   await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
   await ui.press({key:'more'});await ui.press({key:'check-updates'});
   expect(fixture.calls.filter(x=>x.action==='checkUpdates').at(-1)).toEqual({action:'checkUpdates',refresh:true});
-  expect(await ui.find({type:'Text',text:'StandMixer 0.1.5'})).toBeDefined();
+  expect(await ui.find({type:'Text',text:'StandMixer 0.2.6'})).toBeDefined();
+  expect(await ui.find({type:'Text',text:'v0.2.6'})).toBeDefined();
+  expect(await ui.find({type:'Text',text:'v0.1.5'})).toBeUndefined();
   expect(await ui.find({type:'Text',text:'Up to date.'})).toBeDefined();
   expect(fixture.calls.some(x=>['apply','saveDraft','inspect'].includes(x.action))).toBe(false);
 });
@@ -992,7 +855,7 @@ test('Connections shows version and Check now explicitly refreshes without apply
 
 test('Fable 5.2 can be selected without changing other assignments', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit'});await ui.select({key:'claude-algorithms-member-0-model',value:'claude-fable-5-2'});
+  await ui.press({key:'edit-algorithms'});await ui.select({key:'claude-algorithms-member-0-model',value:'claude-fable-5-2'});
   expect((await ui.find({key:'claude-algorithms-member-0-model'})).props.value).toBe('claude-fable-5-2');
   expect(fixture.calls.some(x=>x.action==='apply')).toBe(false);
 });
@@ -1002,6 +865,68 @@ test('main panel shows fixed and range efforts without entering Edit', async ($,
  const initial=state();const route=initial.configuration.profiles.find(p=>p.platform==='claude').routes.find(r=>r.category==='algorithms');
  route.effort={mode:'fixed',value:'high'};route.additionalAgents=[{id:'secondary',modelID:'claude-fable-5-2',effort:{mode:'range',minimum:'low',maximum:'max'}}];
  harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
- expect(await ui.find({type:'Text',text:'High'})).toBeDefined();expect(await ui.find({type:'Text',text:'Low–Max'})).toBeDefined();
+ expect((await ui.findAll({type:'Svg'})).some(node=>node.props.alt==='Effort: High')).toBe(true);expect((await ui.findAll({type:'Svg'})).some(node=>node.props.alt==='Effort: Low–Max (range)')).toBe(true);
  expect(await ui.find({key:'claude-algorithms-member-0-model'})).toBeUndefined();
+});
+
+
+test('hierarchical comparison opens one inline row and edits independent inheritance locally',async($,on)=>{
+  const initial=hierarchyState(),fixture=harness(on,initial);
+  await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
+  for(const task of ['planning','ui','implementation','review','research','mechanical'])expect(await ui.find({key:'row-'+task})).toBeDefined();
+  expect(await ui.find({key:'row-uiBuild'})).toBeUndefined();expect(await ui.find({type:'Select',key:'codex-ui-member-0-model'})).toBeUndefined();
+  await ui.press({key:'disclose-ui'});await ui.press({key:'edit-uiBuild'});
+  expect((await ui.find({key:'codex-uiBuild-member-0-model'})).props.value).toBe('parent');expect((await ui.find({key:'codex-uiBuild-team'})).props.value).toBe('parent');
+  expect(await ui.find({key:'codex-coordinator-member-0-model'})).toBeUndefined();
+  await ui.select({key:'codex-uiBuild-member-0-effort',value:'fixed'});await ui.select({key:'codex-uiBuild-member-0-level',value:'medium'});
+  expect(fixture.calls.map(call=>call.action)).toEqual(['state']);await ui.press({key:'save-edit'});
+  const route=fixture.calls[1].configuration.profiles.find(profile=>profile.platform==='codex').routes.find(route=>route.category==='uiBuild');
+  expect(route.inheritsModel).toBe(true);expect(route.inheritsEffort).toBe(false);expect(route.inheritsTeam).toBe(true);expect(route.effort.value).toBe('medium');
+  await ui.press({key:'edit-uiBuild'});await ui.press({key:'codex-uiBuild-inherit-all'});await ui.press({key:'save-edit'});
+  const reset=fixture.calls[2].configuration.profiles.find(profile=>profile.platform==='codex').routes.find(route=>route.category==='uiBuild');expect(reset.inheritsModel&&reset.inheritsEffort&&reset.inheritsTeam).toBe(true);
+  expect(fixture.calls.some(call=>['apply','inspect','preview'].includes(call.action))).toBe(false);
+});
+test('native effective assignments and recipe identity preserve independent model effort and team policies',async()=>{
+  const initial=hierarchyState(),config=initial.configuration,profile=config.profiles.find(profile=>profile.platform==='codex'),parent=profile.routes.find(route=>route.category==='review'),child=profile.routes.find(route=>route.category==='securityReview');
+  parent.modelID='gpt-6-astra';parent.effort={mode:'fixed',value:'max'};parent.additionalAgents=[{id:'secondary',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'high'}}];
+  expect(effectiveRoute(config,'codex','securityReview').additionalAgents[0].modelID).toBe('claude-fable-5-2');
+  const before=recipeKey(config,['codex']);child.modelID='gpt-6-luna';expect(recipeKey(config,['codex'])).toBe(before);child.inheritsModel=false;expect(recipeKey(config,['codex'])===before).toBe(false);
+  expect(effectiveRoute(config,'codex','securityReview').modelID).toBe('gpt-6-luna');expect(effectiveRoute(config,'codex','securityReview').effort.value).toBe('max');
+  child.inheritsTeam=false;child.additionalAgents=[{id:'own',modelID:'gpt-6.1-sol',effort:{mode:'fixed',value:'max'}}];expect(effectiveRoute(config,'codex','securityReview').additionalAgents[0].modelID).toBe('gpt-6.1-sol');
+  expect(parent.additionalAgents[0].modelID).toBe('claude-fable-5-2');
+});
+
+
+test('When stuck edits ordered independent steps and saves a draft without parallel workers',async($,on)=>{
+  const initial=hierarchyState(),route=initial.configuration.profiles[0].routes.find(route=>route.category==='debugging');
+  route.stuckEscalation=['claude-fable-5-2','gpt-6-astra','claude-opus-5-5'].map((modelID,index)=>({id:'step-'+index,modelID,effort:{mode:'fixed',value:'max'}}));
+  const before=routeKey(route),copy=JSON.parse(JSON.stringify(route));copy.stuckEscalation[0].id='different-id';expect(routeKey(copy)).toBe(before);copy.stuckEscalation.reverse();expect(routeKey(copy)===before).toBe(false);
+  const fixture=harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
+  expect({orderedSummary:!!await ui.find({key:'stuck-summary-codex-debugging'})}).toEqual({orderedSummary:true});
+  await ui.press({key:'edit-debugging'});await ui.select({key:'codex-debugging-stuck-0-model',value:'gpt-6-astra'});expect({duplicateRejected:!!await ui.find({type:'Text',text:'Choose a different model for each escalation step.'})}).toEqual({duplicateRejected:true});
+  await ui.press({key:'codex-debugging-stuck-1-up'});await ui.select({key:'codex-debugging-stuck-0-level',value:'medium'});
+  expect(fixture.calls.map(call=>call.action)).toEqual(['state']);await ui.press({key:'save-edit'});
+  const saved=fixture.calls[1].configuration.profiles[0].routes.find(route=>route.category==='debugging');expect(saved.stuckEscalation.map(worker=>worker.modelID)).toEqual(['gpt-6-astra','claude-fable-5-2','claude-opus-5-5']);expect(saved.stuckEscalation[0].effort.value).toBe('medium');expect(saved.additionalAgents).toEqual([]);expect(saved.inheritsEffort).toBe(true);
+});
+
+
+test('manual collapse hides configured children and When stuck without saving, then restores their choices',async($,on)=>{
+  const initial=hierarchyState(),children={planning:['quickIdeas','algorithms'],ui:['uiBuild','uiReview'],implementation:['routineCoding','debugging'],review:['developmentSecurity','securityReview'],research:['draftingEditing','deepAnalysis'],mechanical:['computerUse']};
+  for(const profile of initial.configuration.profiles)for(const route of profile.routes.filter(route=>Object.values(children).flat().includes(route.category))){
+    route.inheritsModel=false;route.modelID='gpt-6-astra';route.inheritsEffort=false;route.effort={mode:'fixed',value:'medium'};route.inheritsTeam=false;route.additionalAgents=[{id:'extra',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'max'}}];
+    if(route.category==='debugging')route.stuckEscalation=[{id:'next',modelID:'claude-opus-5-5',effort:{mode:'fixed',value:'max'}}];
+  }
+  const before=JSON.stringify(initial.configuration),fixture=harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
+  for(const [parent,tasks] of Object.entries(children)){
+    for(const task of tasks)expect(await ui.find({key:'row-'+task})).toBeDefined();await ui.press({key:'disclose-'+parent});
+    expect((await ui.find({key:'disclose-'+parent})).props.label.startsWith('▸ ')).toBe(true);
+    for(const task of tasks)expect(await ui.find({key:'row-'+task})).toBeUndefined();
+    if(parent==='implementation')expect(await ui.find({key:'stuck-summary-codex-debugging'})).toBeUndefined();
+    await ui.press({key:'disclose-'+parent});for(const task of tasks)expect(await ui.find({key:'row-'+task})).toBeDefined();
+  }
+  expect(JSON.stringify(initial.configuration)).toBe(before);expect(fixture.calls.map(call=>call.action)).toEqual(['state']);
+  await ui.press({key:'edit-uiBuild'});expect((await ui.find({key:'codex-uiBuild-member-0-model'})).props.value).toBe('gpt-6-astra');await ui.select({key:'codex-uiBuild-member-0-level',value:'high'});
+  await ui.press({key:'disclose-ui'});expect(await ui.find({key:'codex-uiBuild-member-0-level'})).toBeUndefined();expect(await ui.find({key:'done-row-uiBuild'})).toBeUndefined();expect(fixture.calls.map(call=>call.action)).toEqual(['state']);
+  await ui.press({key:'disclose-ui'});expect(await ui.find({key:'codex-uiBuild-member-0-level'})).toBeUndefined();await ui.press({key:'edit-uiBuild'});expect((await ui.find({key:'codex-uiBuild-member-0-level'})).props.value).toBe('high');
+  await ui.press({key:'save-edit'});const saved=fixture.calls[1].configuration.profiles.find(profile=>profile.platform==='codex').routes.find(route=>route.category==='uiBuild');expect(saved.effort.value).toBe('high');expect(saved.inheritsModel).toBe(false);expect(saved.inheritsEffort).toBe(false);expect(saved.inheritsTeam).toBe(false);
 });

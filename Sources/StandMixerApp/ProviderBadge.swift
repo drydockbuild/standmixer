@@ -44,25 +44,23 @@ struct AssignmentChangeLine: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            InlineFlowLayout(spacing: 5, lineSpacing: 2) {
-                if let prefix { Text(prefix).font(.system(size: 9)).foregroundStyle(StandMixerTheme.muted) }
-                ModelIdentityLabel(modelID: modelID, reportedPlatform: removed ? oldPlatform : nil,
-                                   previous: removed, emphasized: modelChanged || added)
-                if let provider = provider ?? (removed ? oldPlatform : nil), provider != platform {
-                    ProviderBadge(platform: provider, subdued: removed)
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        if let prefix { Text(prefix).font(.system(size: 9)).foregroundStyle(StandMixerTheme.muted) }
+                        ModelIdentityLabel(modelID: modelID, reportedPlatform: removed ? oldPlatform : nil,
+                                           previous: removed, emphasized: modelChanged || added)
+                        if showsComparison && removed { Text("Removed").font(.system(size: 9, weight: .medium)).foregroundStyle(StandMixerTheme.accent) }
+                        if showsComparison && added { Text("Added").font(.system(size: 8.5, weight: .medium)).foregroundStyle(StandMixerTheme.accent) }
+                    }
+                    if let provider = provider ?? (removed ? oldPlatform : nil), provider != platform {
+                        Text("via " + provider.displayName).font(.system(size: 9))
+                            .foregroundStyle(StandMixerTheme.muted).padding(.leading, 22)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                if modelID != Route.autoControllerModelID, let effort, !removed {
+                    EffortMeter(policy: effort, supportedLevels: store.model(modelID)?.supportedEfforts ?? EffortPolicy.levels)
                 }
-                if modelID != Route.autoControllerModelID, let effort, effort.mode != .auto, !removed {
-                    Text(effort.shortLabel)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(StandMixerTheme.muted)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(StandMixerTheme.muted.opacity(0.10), in: Capsule())
-                        .fixedSize()
-                        .help("Effort: " + effort.shortLabel)
-                        .accessibilityLabel("Effort: " + effort.shortLabel)
-                }
-                if showsComparison && removed { Text("Removed").font(.system(size: 9, weight: .medium)).foregroundStyle(StandMixerTheme.accent) }
-                if showsComparison && added { Text("Added").font(.system(size: 8.5, weight: .medium)).foregroundStyle(StandMixerTheme.accent) }
             }
             .font(.system(size: 12))
             if showsComparison, modelChanged, let oldModelID, !removed {

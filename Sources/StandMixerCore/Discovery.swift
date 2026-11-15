@@ -9,7 +9,7 @@ extension IntegrationService {
             return AgentPlatform.allCases.map { platform in
                 guard let selected = discoveredSelection(platform) else {
                     return ConnectionStatus(platform: platform, path: nil, version: nil,
-                        detail: "CLI not found. Install it separately, then check again.", isInstalled: false)
+                        detail: "No working CLI could be verified with --version in known installation locations. Install or repair it, then check again.", isInstalled: false)
                 }
                 let evidence = selected.version == nil
                     ? "Executable found; the CLI version could not be verified."
@@ -49,9 +49,24 @@ extension IntegrationService {
         discoveredSelection(platform)?.executable
     }
 
+    /// Explicit launches always refresh. Only a successful branded --version probe
+    /// authorizes a returned path; fixture metadata and broken candidates cannot launch.
+    public func resolveCLI(_ platform: AgentPlatform) async throws -> URL {
+        guard !metadataOnlyDiscovery else {
+            throw StandMixerError.invalid("CLI resolution is disabled in fixture mode. No executable was launched.")
+        }
+        return try await Task.detached(priority: .utility) { [self] in
+            discoveryCache.invalidate()
+            guard let selected = discoveredSelection(platform), selected.version != nil else {
+                throw StandMixerError.invalid("No working \(platform.displayName) CLI could be verified with --version in known installation locations. Install or repair it, then retry.")
+            }
+            return selected.executable
+        }.value
+    }
+
     private func discoveredSelection(_ platform: AgentPlatform) -> CLISelection? {
         discoveryCache.selection(for: platform) {
-            let discovery = CLIDiscovery(home: home, environment: environment)
+            let discovery = cliDiscovery
             if metadataOnlyDiscovery {
                 return discovery.candidates(platform).first.map {
                     CLISelection(executable: $0.executable, version: nil, source: $0.source, isActive: $0.isActive)
@@ -64,7 +79,7 @@ extension IntegrationService {
     /// Bounded known CLI locations and executable metadata only. This never
     /// launches a CLI, reads credentials, or claims sign-in/model entitlement.
     public func detectMetadata() -> [ConnectionStatus] {
-        let discovery = CLIDiscovery(home: home, environment: environment)
+        let discovery = cliDiscovery
         return AgentPlatform.allCases.map { platform in
             let selected = discovery.candidates(platform).first
             return .init(platform: platform, path: selected?.executable.path, version: nil,
@@ -177,6 +192,62 @@ struct CLIDiscovery {
         return Self.choose(candidates: candidates, versions: versions)
     }
 
+    /// Account checks share one monotonic deadline across discovery and public status.
+    /// Structured child tasks cancel and reap every owned probe process group.
+    func select(_ platform: AgentPlatform, deadline: TimeInterval, maximumConcurrentProbes: Int = 2) async throws -> CLISelection? {
+        try Task.checkCancellation()
+        let candidates = candidates(platform)
+        guard !candidates.isEmpty else { return nil }
+        let environment = ["PATH": binDirectories().compactMap { safeURL($0) }.map(\.path).joined(separator: ":")]
+        var versions = [String?](repeating: nil, count: candidates.count)
+        try await withThrowingTaskGroup(of: (Int, String?).self) { group in
+            var next = 0
+            func enqueue() throws {
+                try Task.checkCancellation()
+                let remaining = deadline - ProcessInfo.processInfo.systemUptime
+                guard remaining > 0 else { throw AgentImportError.timedOut(0) }
+                let index = next; next += 1
+                let candidate = candidates[index]
+                let timeout = min(probeTimeout, remaining)
+                group.addTask {
+                    (index, try await Self.cancellableVersion(candidate.executable, platform: platform,
+                                                              environment: environment, timeout: timeout))
+                }
+            }
+            for _ in 0..<min(max(1, maximumConcurrentProbes), candidates.count) { try enqueue() }
+            while let (index, version) = try await group.next() {
+                versions[index] = version
+                try Task.checkCancellation()
+                guard ProcessInfo.processInfo.systemUptime < deadline else { throw AgentImportError.timedOut(0) }
+                if next < candidates.count { try enqueue() }
+            }
+        }
+        return Self.choose(candidates: candidates, versions: versions)
+    }
+
+    private static func cancellableVersion(_ executable: URL, platform: AgentPlatform,
+                                           environment: [String: String], timeout: TimeInterval) async throws -> String? {
+        try Task.checkCancellation()
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("standmixer-cli-version-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let path = [executable.deletingLastPathComponent().path, environment["PATH"] ?? "", "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin"].joined(separator: ":")
+        let isolated = ["HOME": temporary.path, "CODEX_HOME": temporary.path, "CLAUDE_CONFIG_DIR": temporary.path,
+                        "PATH": path, "LANG": "en_US.UTF-8", "TMPDIR": temporary.path]
+        let process = InspectionProcess(maximumBytes: 4096)
+        do {
+            let output = try await withTaskCancellationHandler(operation: {
+                try Task.checkCancellation()
+                return try await process.runCaptured(executable: executable, arguments: ["--version"], environment: isolated,
+                    cwd: temporary, input: URL(fileURLWithPath: "/dev/null"), timeout: timeout)
+            }, onCancel: { process.cancel() })
+            try Task.checkCancellation()
+            guard output.succeeded, !output.outputOverflow else { return nil }
+            return versionToken(String(decoding: output.output, as: UTF8.self), platform: platform)
+        } catch is CancellationError { throw CancellationError() }
+        catch { return nil }
+    }
+
     /// Active verified CLIs take precedence; otherwise choose the newest verified version.
     static func choose(candidates: [CLICandidate], versions: [String?]) -> CLISelection? {
         let verified = zip(candidates, versions).compactMap { candidate, text -> (CLICandidate, String, CLIVersion)? in
@@ -194,7 +265,7 @@ struct CLIDiscovery {
             return CLISelection(executable: selected.0.executable, version: selected.1,
                                 source: selected.0.source, isActive: selected.0.isActive)
         }
-        return candidates.first.map { CLISelection(executable: $0.executable, version: nil, source: $0.source, isActive: false) }
+        return nil
     }
 
     func candidates(_ platform: AgentPlatform) -> [CLICandidate] {
@@ -476,7 +547,7 @@ private final class CLIProbeResults: @unchecked Sendable {
     var values: [String?] { lock.lock(); defer { lock.unlock() }; return storage }
 }
 
-/// One cache per integration service; a refresh replaces the path used by later previews as well.
+/// One cache per service; explicit connection checks and launches invalidate it.
 final class ExecutableDiscoveryCache: @unchecked Sendable {
     private struct Entry { var selection: CLISelection?; var checkedAt: Date }
     private let lock = NSRecursiveLock()

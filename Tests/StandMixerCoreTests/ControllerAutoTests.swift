@@ -93,6 +93,7 @@ final class ControllerAutoTests: XCTestCase {
             let index = invalid.profiles[0].routes.firstIndex { $0.category == category }!
             invalid.customModels = [fake]
             invalid.profiles[0].routes[index].modelID = "auto"
+            invalid.profiles[0].routes[index].inheritsModel = false
             XCTAssertThrowsError(try service.preview(configuration: invalid, platforms: [.codex]))
         }
         var invalid = StandMixerConfiguration.defaults
@@ -101,6 +102,7 @@ final class ControllerAutoTests: XCTestCase {
         invalid = .defaults
         invalid.profiles[0].routes[2].resultMode = .ai
         invalid.profiles[0].routes[2].judgeModelID = "auto"
+        invalid.profiles[0].routes[2].inheritsTeam = false
         XCTAssertThrowsError(try service.preview(configuration: invalid, platforms: [.codex]))
         invalid = .defaults
         invalid.profiles[0].routes[0].effort = .fixed("low")
@@ -121,7 +123,7 @@ final class ControllerAutoTests: XCTestCase {
                     XCTAssertTrue(policy.contains("StandMixer itself adds no tasks, reviews, audits, or workflow stages"))
                     XCTAssertFalse(policy.contains("Do not add unconfigured critics"))
                     XCTAssertEqual(policy.components(separatedBy: "StandMixer selects models and effort").count - 1, 1)
-                    XCTAssertTrue(policy.contains("- Review & Security:"), "The available review route stays configured; it does not mandate a review.")
+                    XCTAssertTrue(policy.contains("- Code review:"), "The available review route stays configured; it does not mandate a review.")
                     XCTAssertTrue(policy.contains("Follow the user's, project's, and native harness's instructions"))
                     XCTAssertTrue(policy.contains("A single-model assignment neither requires delegation nor limits the number of workers"))
                     XCTAssertTrue(policy.contains("no extra identity checks"))
@@ -142,7 +144,7 @@ final class ControllerAutoTests: XCTestCase {
         let preview = try service.preview(configuration: .preset(.high, availablePlatforms: [.codex, .claude]))
         for suffix in [".codex/AGENTS.md", ".claude/CLAUDE.md"] {
             let policy = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(suffix) }).after
-            for guidance in ["current chat model remains the native controller", "Follow the user's, project's, and native harness's instructions", "A single-model assignment neither requires delegation nor limits the number of workers", "multiple warranted workers may use the same selector", "When this category warrants delegation, launch all", "Leave native model and effort settings untouched", "do not launch or hop to a controller model", "original caller's requested or effective reasoning intensity"] {
+            for guidance in ["current chat model remains the native controller", "Follow the user's, project's, and native harness's instructions", "A single-model assignment neither requires delegation nor limits the number of workers", "multiple warranted workers may use the same selector", "Leave native model and effort settings untouched", "do not launch or hop to a controller model", "original caller's requested or effective reasoning intensity"] {
                 XCTAssertTrue(policy.contains(guidance), guidance)
             }
             XCTAssertTrue(policy.contains("- Controller: Auto"))

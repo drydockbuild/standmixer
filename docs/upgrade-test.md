@@ -1,37 +1,33 @@
-# Other-Mac upgrade test: 0.1.4 → 0.1.7
+# Other-Mac upgrade test for 0.2.6
 
-This plan uses 0.1.4 as the baseline and tests an update to 0.1.7, including the new StandMixer paths, update details, restore-point fix, and verified linked-worktree Git instructions. Use the pinned baseline below before running the update.
+Run the test over the existing installation. Version 0.1.4 exercises the one-time migration from the old data layout. Version 0.1.8 or an earlier 0.2.x release exercises a standard update under the current layout.
 
-Do not uninstall first: the existing installation is what this test needs. Version 0.1.0 predates the update command and needs the baseline installer first. Skip the baseline install if that Mac is already on 0.1.4. Do not downgrade a newer installation.
+## 1. Save the starting preset (~3 minutes)
 
-## 1. Prepare the baseline now (~3 minutes)
-
-On the other Mac, install the exact public 0.1.4 commit. This pinned command stays a 0.1.4 installer even after a later release is published:
+If StandMixer 0.1.4 or newer is already installed, keep that installation and skip the command below. To prepare a legacy baseline on a fresh test Mac or one still on 0.1.0, which predates `update`, use the pinned public 0.1.4 installer.
 
 ```sh
 sm_test="$(mktemp -d)" && git clone https://github.com/drydockbuild/standmixer.git "$sm_test/standmixer" && git -C "$sm_test/standmixer" checkout --detach 507e531a424e7c280825e320a304b6db1f4f00e8 && /bin/sh "$sm_test/standmixer/install.sh" --no-open
 ```
 
-Reload Claude plugins or restart Codex. Open StandMixer and save the current setup as **Upgrade test**. Keep a screenshot of the assignments for comparison. Do not reset or remove existing settings.
-
-Expected: StandMixer opens in both installed tools, and the saved preset appears. Your existing setup is still present.
+Reload Claude plugins or restart Codex. Verify StandMixer opens in each installed tool, then save the current setup as **Upgrade test**. Keep a screenshot of the assignments for comparison and leave the existing settings in place.
 
 ## 2. Test the update after publication (~3 minutes)
 
-After 0.1.7 is published, run **one** of these in the agent chat:
+While 0.2.6 is the current public release, run **one** of these in the agent chat.
 
 - Codex: `$standmixer update`
 - Claude Code: `/standmixer update`
 
-Use the plain update command for this first path-changing upgrade. Build the optional Mac app separately afterward with `install-mac`; the old updater's `--mac` step still references the former source location.
+For the legacy migration, use the plain update command. If you use the optional Mac app, rebuild it afterward with `install-mac` because the 0.1.4 updater's `--mac` step still references the former source location. For a standard update, you can add `--mac` to rebuild the app at the same time.
 
-Reload plugins or restart the host, then reopen StandMixer. Sources in Codex/web or Connections in Claude should show **0.1.7**. **Check now** should report the current version and update the check time. The **Upgrade test** preset and assignments should still be there.
+Reload Claude plugins or restart Codex, then reopen StandMixer. **Sources** in Codex or **Connections** in Claude should show **0.2.6**. **Check now** should report that StandMixer is up to date and refresh the check time. Confirm the **Upgrade test** preset retains its model and effort assignments. If you rebuilt the Mac app, its window should show **v0.2.6 · build 20**. You can choose **Not now** if a Claude connection prompt appears during the check.
 
-This first upgrade retires the old layout into a private recovery folder, retaining presets and drafts. Load the saved setup, review the changes, and **Apply once** to install routing at the new paths and refresh the worker instructions. Start new agent chats to load them. An unrecognized or modified old installation may stop cleanup with a specific conflict; preserve it and report the message rather than deleting anything manually.
+The legacy migration moves the old installation into a private recovery folder and retains presets and drafts. Load **Upgrade test**, review the changes, and **Apply** once to install routing at the new paths. Start new agent chats to load those instructions. If cleanup stops on a conflict, keep the files and report the message. A standard update keeps routing in place and needs no migration Apply step.
 
 ## 3. Test a repeated update (~2 minutes)
 
-After Apply, these read-only hashes surrounding a second update check that an unchanged update keeps the previous restore point:
+On the upgraded installation, compare the restore-point hash before and after a second update to the same release. For the legacy path, do this after **Apply**. For the standard path, use an installation that already has a restore point.
 
 ```sh
 shasum -a 256 "$HOME/Library/Application Support/StandMixer/last-backup.json"
@@ -39,12 +35,10 @@ shasum -a 256 "$HOME/Library/Application Support/StandMixer/last-backup.json"
 shasum -a 256 "$HOME/Library/Application Support/StandMixer/last-backup.json"
 ```
 
-Expected: the updater says the source is current, the two hashes match, saved presets remain, and both panels still open. Do not use Restore merely to test this.
+The updater should say the source is current, the two hashes should match, and each installed panel should still open with the saved preset. Comparing the hashes checks preservation without using **Restore**.
 
-Checks notify; they do not install automatically. A genuine “newer version available” notice requires a later published version, so that part remains a subsequent test.
+Version checks report availability. Test the update notice when a later version is published.
 
-## Verified locally / still pending
+## Verification
 
-The build checks use isolated homes and fake harnesses, without model calls. They cover generated recipe wording, the published 0.1.4 updater invoking the new installer, saved-preference retention, the new-path launcher, repeated updates, and receipt-order no-op behavior.
-
-The other Mac's real host/plugin reload and upgrade checks above remain pending. Local fixture success is not a report that the other Mac has passed.
+Local fixtures cover legacy retirement, saved-preference retention, updates, and preserving the restore point on a no-op. They use isolated homes and fake harnesses without model calls. The other-Mac upgrade and real host reload checks remain pending.

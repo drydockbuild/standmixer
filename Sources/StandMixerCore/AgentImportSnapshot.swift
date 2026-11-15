@@ -440,7 +440,7 @@ struct AgentImportSnapshot {
                     let pieces = trimmed.split(separator: "=", maxSplits: 1).map(String.init)
                     guard pieces.count == 2 else { continue }
                     let key = pieces[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    let allowed: Set<String> = ["model", "model_provider", "model_reasoning_effort", "model_reasoning_summary", "profile", "effort", "effort_level", "minimum", "maximum", "developer_instructions", "instructions", "description", "name", "config_file", "coordinator", "planning", "ui", "implementation", "algorithms", "review", "algorithmreview", "mechanical", "additionalagents", "resultmode", "judgemodelid"]
+                    let allowed = Set(["model", "model_provider", "model_reasoning_effort", "model_reasoning_summary", "profile", "effort", "effort_level", "minimum", "maximum", "developer_instructions", "instructions", "description", "name", "config_file", "algorithmreview", "additionalagents", "resultmode", "judgemodelid"] + WorkCategory.allCases.map { $0.rawValue.lowercased() })
                     guard allowed.contains(key) else { continue }
                     let value = pieces[1].trimmingCharacters(in: .whitespaces)
                     if ["developer_instructions", "instructions", "description"].contains(key) {

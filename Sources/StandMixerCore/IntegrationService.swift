@@ -15,6 +15,8 @@ public final class IntegrationService: @unchecked Sendable {
     var operationLockDepth = 0
     var operationLockDescriptor: Int32 = -1
     let metadataOnlyDiscovery: Bool
+    private var discoveryOverride: CLIDiscovery?
+    var cliDiscovery: CLIDiscovery { discoveryOverride ?? CLIDiscovery(home: home, environment: environment) }
     private var recoveryNotes: [String] = []
     public var configurationRecoveryNotes: [String] {
         lock.lock(); defer { lock.unlock() }
@@ -33,6 +35,13 @@ public final class IntegrationService: @unchecked Sendable {
         self.executableURL = executableURL ?? URL(fileURLWithPath: "/Applications/StandMixer.app/Contents/MacOS/StandMixer")
         self.codexHome = environment["CODEX_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".codex", isDirectory: true)
         self.claudeHome = environment["CLAUDE_CONFIG_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".claude", isDirectory: true)
+    }
+
+    /// Isolated discovery fixtures cannot enumerate or launch the owner's installed CLIs.
+    convenience init(discovery: CLIDiscovery, applicationSupport: URL? = nil, metadataOnlyDiscovery: Bool = false) {
+        self.init(home: discovery.home, applicationSupport: applicationSupport, environment: discovery.environment,
+                  metadataOnlyDiscovery: metadataOnlyDiscovery)
+        discoveryOverride = discovery
     }
 
     public func loadConfiguration() throws -> StandMixerConfiguration {
@@ -330,12 +339,19 @@ public final class IntegrationService: @unchecked Sendable {
             guard selected.count == 1 else { throw StandMixerError.invalid("Each selected agent needs one profile.") }
             let profile = selected[0]
             guard Set(profile.routes.map(\.category)) == Set(WorkCategory.allCases), profile.routes.count == WorkCategory.allCases.count else { throw StandMixerError.invalid("Each profile needs exactly one route for every category.") }
-            for route in profile.routes {
+            guard !profile.routes.contains(where: { $0.category.parent == nil && ($0.inheritsModel || $0.inheritsEffort || $0.inheritsTeam) }) else {
+                throw StandMixerError.invalid("Only child routes can inherit a model, effort, or team.")
+            }
+            for route in profile.effectiveRoutes {
                 guard route.additionalAgents.count <= 3, route.category != .coordinator || route.additionalAgents.isEmpty else {
                     throw StandMixerError.invalid("Use one coordinator and one to four workers per category.")
                 }
+                let escalation = route.stuckEscalation
+                guard escalation.isEmpty || (route.category == .debugging && escalation.count <= 3 && Set(escalation.map(\.modelID)).count == escalation.count) else {
+                    throw StandMixerError.invalid("Choose up to three distinct models for debugging escalation.")
+                }
                 if route.isAutoController { continue }
-                let workers = [(route.modelID, route.effort)] + route.additionalAgents.map { ($0.modelID, $0.effort) }
+                let workers = [(route.modelID, route.effort)] + (route.additionalAgents + escalation).map { ($0.modelID, $0.effort) }
                 for (id, policy) in workers {
                     guard id != Route.autoControllerModelID, let model = catalog[id], validIdentifier(id) else { throw StandMixerError.invalid("Add a concrete model definition for \(id) before applying. Auto is available only for the controller.") }
                     if route.category == .coordinator && model.platform != platform { throw StandMixerError.invalid("The coordinator must be a native \(platform.displayName) model.") }
@@ -362,8 +378,9 @@ public final class IntegrationService: @unchecked Sendable {
 
     private func workerSpecs(_ profile: RoutingProfile, catalog: [String: ModelSpec]) -> [WorkerSpec] {
         var specs = Set<WorkerSpec>()
-        for route in profile.routes where route.category != .coordinator {
+        for route in profile.effectiveRoutes where route.category != .coordinator {
             specs.formUnion(assignmentSpecs(route, catalog: catalog))
+            specs.formUnion(route.stuckEscalation.map { WorkerSpec(model: catalog[$0.modelID]!, effort: $0.effort) })
             if !route.additionalAgents.isEmpty, route.resultMode == .ai, let judge = route.judgeModelID {
                 specs.insert(WorkerSpec(model: catalog[judge]!, effort: .auto))
             }
@@ -373,22 +390,25 @@ public final class IntegrationService: @unchecked Sendable {
 
     private func policy(_ profile: RoutingProfile, catalog: [String: ModelSpec]) -> String {
         var text = "# StandMixer routing for \(profile.platform.displayName)\n\nThe current chat model remains the native controller. StandMixer selects models and effort for work you already decide is needed. Follow the user's, project's, and native harness's instructions for planning, delegation, reviews, and verification. A single-model assignment neither requires delegation nor limits the number of workers; multiple warranted workers may use the same selector. StandMixer itself adds no tasks, reviews, audits, or workflow stages. Explicitly configured teams apply only when that work is warranted.\n\n"
-        if profile.routes.contains(where: { !$0.additionalAgents.isEmpty }) {
+        text += """
+        Choose the route based on the unresolved work. Quick ideas covers bounded nontechnical suggestions such as names or rough options. Use Algorithms under Planning & algorithms for unresolved algorithm or invention design, including feasibility, mathematical correctness, tradeoffs, and experimental kernels, even when the request says brainstorm or asks for code. Use General coding once the approach is settled and Routine coding when the approach, interfaces, and acceptance checks for a bounded implementation task are clear. Diagnosing a failed suite belongs to Debugging / root cause. Running a known suite belongs to Routine tasks.
+
+        After resolving a design decision or diagnosing a failure, hand the resulting implementation to Routine coding when it can be specified clearly. Keep coupled work together; avoid tiny handoffs that cost more coordination than they save.
+
+        Drafting & editing applies when the content and facts are settled. Use Deep analysis for difficult synthesis, new conclusions, and conflicting evidence. When documentation requires checking code, route the code investigation according to the work it requires: General coding, Debugging / root cause, or Code review. Judge visual quality through Design & UI, algorithm design through Planning & algorithms, and code correctness through Code review. Computer use applies to visually operating apps or browser interfaces. Ordinary commands and tool calls keep the route of the work they support.
+
+        Use Development security for bounded private security checks. Start warranted Release security review during public release preparation, early enough for several rounds of fixes, including for internet-reachable staging or test systems. Assess the release plan and actual exposure. Ask about release intent only if uncertainty materially changes the review choice or timing. Verify fixes and affected areas, and repeat the full review when the scope or exposure changes materially.
+
+        """ + "\n"
+        let routes = profile.effectiveRoutes
+        if routes.contains(where: { !$0.additionalAgents.isEmpty }) {
             text += "In configured teams, the first listed model is the lead. Quick review means bounded scope, not lower effort.\n\n"
         }
         if workerSpecs(profile, catalog: catalog).contains(where: { $0.provider != profile.platform }) {
             text += "Only when external delegation is warranted, read `\(externalWorkerGuideURL(profile.platform).path)` for the selected recipe and native completion protocol. Launch it directly; no native wrapper or model watcher.\n\n"
         }
-        for route in profile.routes {
-            let scope: String
-            switch route.category {
-            case .ui: scope = "Website/app design, layout, styling, and frontend implementation. "
-            case .implementation: scope = "Nonvisual/backend implementation and surrounding code. "
-            case .algorithms: scope = "Algorithm design and high-intelligence reasoning. "
-            case .review: scope = "Code correctness and vulnerabilities, including authentication, permissions, and secret handling. "
-            default: scope = ""
-            }
-            text += "- \(route.category.title): \(scope)"
+        for route in routes {
+            text += "- \(route.category.title): "
             if route.category == .coordinator {
                 if route.isAutoController {
                     text += "Auto — use the currently selected native/invoking chat model and its effort. Leave native model and effort settings untouched; do not launch or hop to a controller model.\n"
@@ -397,14 +417,9 @@ public final class IntegrationService: @unchecked Sendable {
                 }
                 continue
             }
+            text += route.category.description + " "
             let workers = assignmentSpecs(route, catalog: catalog)
-            text += workers.enumerated().map { index, spec in
-                let model = catalog[spec.modelID]!
-                let provider = spec.provider == profile.platform ? "" : " via \(spec.provider.displayName)"
-                let slot = workers.count > 1 ? "\(index + 1). " : ""
-                let launch = spec.provider == profile.platform ? "`\(spec.name)`" : "direct external CLI recipe `\(spec.externalReferenceID)`"
-                return "\(slot)\(model.label)\(provider), \(spec.effort.description), \(launch)"
-            }.joined(separator: "; ") + ".\n"
+            text += launchDescriptions(workers, platform: profile.platform, catalog: catalog) + ".\n"
             if workers.count > 1 {
                 text += teamInstructions(route, count: workers.count)
                 switch route.resultMode {
@@ -419,8 +434,23 @@ public final class IntegrationService: @unchecked Sendable {
             if route.category == .ui {
                 text += "  Prefer the selected design's model for visual follow-ups when useful; use normal judgment about delegation, changes of approach, or replacing workers.\n"
             }
+            if !route.stuckEscalation.isEmpty {
+                let targets = route.stuckEscalation.map { WorkerSpec(model: catalog[$0.modelID]!, effort: $0.effort) }
+                text += "  When debugging is stuck, try in order: " + launchDescriptions(targets, platform: profile.platform, catalog: catalog) + ".\n"
+                text += "  Use this chain only after distinct substantive diagnostic attempts fail to make progress. Two failed diagnostic cycles can be a signal. Count tested hypotheses and findings rather than tool calls. Skip the initial model and any model already exhausted on this issue. Hand off sequentially with the current diff, test evidence, and tested hypotheses. Try each eligible model once and stop when it provides actionable progress or the chain is exhausted.\n"
+            }
         }
         return text + "\nRoutes select models, not worker personas. Give workers the concrete task, only relevant context/files, and actual constraints; omit role labels and unrelated narration about StandMixer, presets, or personal budgets. Keep the original caller's requested or effective reasoning intensity in controller launch metadata, not worker prose. For Auto, use the supported levels in the selector description or external recipe: choose the nearest level in low, medium, high, xhigh, max, ultra order, with lower ties. Use native inheritance when suitable or pass the mapped launch override; external CLI jobs must explicitly pass the target effort flag. Preserve explicit user/session requests. If the caller intensity is unknown, choose from task complexity and constraints before launch. Fixed effort stays fixed; for ranges choose and explicitly pass a supported effort within the stated bounds at launch. These are launch instructions, not runtime enforcement. Respect project permissions and managed settings. Wait for launched workers, verify results proportionately, and surface failures without substitution. Label delegated jobs with the requested model/provider. Do not claim verified model or effort without exposed execution metadata; no extra identity checks or routine identity report.\n"
+    }
+
+    private func launchDescriptions(_ specs: [WorkerSpec], platform: AgentPlatform, catalog: [String: ModelSpec]) -> String {
+        specs.enumerated().map { index, spec in
+            let model = catalog[spec.modelID]!
+            let provider = spec.provider == platform ? "" : " via \(spec.provider.displayName)"
+            let slot = specs.count > 1 ? "\(index + 1). " : ""
+            let launch = spec.provider == platform ? "`\(spec.name)`" : "direct external CLI recipe `\(spec.externalReferenceID)`"
+            return "\(slot)\(model.label)\(provider), \(spec.effort.description), \(launch)"
+        }.joined(separator: "; ")
     }
 
     private func teamInstructions(_ route: Route, count: Int) -> String {
@@ -432,7 +462,7 @@ public final class IntegrationService: @unchecked Sendable {
                 return "  Lead + review: for an initial substantial visual design, the primary and helpers may make basic design passes concurrently; helpers provide basic alternatives only, not full implementations. "
             case .planning:
                 return "  Lead + review: the first worker creates the substantive plan; then \(reviewTeam) quick focused review of that plan, not independent replacement plans. "
-            case .review:
+            case .review, .developmentSecurity, .securityReview, .uiReview:
                 return "  Lead + review: the first worker performs the substantive check; then \(reviewTeam) quick focused review of its findings. "
             default:
                 return "  Lead + review: the first worker does the substantive work; then \(reviewTeam) quick focused review of that result, not full duplicate solves. "
@@ -442,7 +472,7 @@ public final class IntegrationService: @unchecked Sendable {
         switch route.category {
         case .planning: scope = "Produce full independent plans. "
         case .ui: scope = "For an initial substantial visual design or an explicitly requested fresh comparison, produce full independent design alternatives. "
-        case .review: scope = "Perform full independent checks. "
+        case .review, .developmentSecurity, .securityReview, .uiReview: scope = "Perform full independent checks. "
         default: scope = "Produce full independent solutions. "
         }
         return "  Parallel: \(scope)When this category warrants delegation, launch all \(count) workers concurrently as independent instances, including repeated slots using the same definition; keep edits isolated. "
@@ -457,7 +487,7 @@ public final class IntegrationService: @unchecked Sendable {
 
         ## Launch and completion
 
-        Write the concrete task in an approved private task file, with only relevant context/files, approved working directory, writable roots, actual constraints, and task-appropriate verification. Omit role labels and unrelated routing, preset, or budget narration. Effort translation belongs to the controller before launch; include caller intensity in task prose only if the task itself needs it. Replace every command placeholder with a properly quoted value or use an argument array. Keep task files and caches inside host-approved roots. CLI sign-in may differ from a desktop login; never read credentials or switch accounts.
+        Write the concrete task in an approved private task file, with only relevant context/files, approved working directory, writable roots, actual constraints, and task-appropriate verification. Omit role labels and unrelated routing, preset, or budget narration. Effort translation belongs to the controller before launch; include caller intensity in task prose only if the task itself needs it. Replace every command placeholder with a properly quoted value or use an argument array. Keep task files and caches inside host-approved roots. CLI sign-in may differ from a desktop login; never read credentials or switch accounts. Codex workers resolve a verified CLI at launch. Claude workers use run-claude to check and use the same native CLI profile linked through Connect Claude for Codex; the launcher replaces itself with the CLI, preserving the caller’s permissions, streams, and job handle. Resolution does not sign in or transfer a Desktop session; stop if resolution or authentication fails. On a confirmed Claude authentication failure, offer Connect Claude for Codex in StandMixer (or the explicit connect-claude command), then wait for the user to complete the official browser login. Do not treat network errors or usage limits as sign-in failures, switch providers, or replay work that may already have begun.
 
         """ + "\n"
         if platform == .claude {
@@ -481,9 +511,9 @@ public final class IntegrationService: @unchecked Sendable {
         """ + "\n"
         for spec in specs {
             let model = catalog[spec.modelID]!
-            let fallback = model.platform == .codex ? "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex" : home.appendingPathComponent(".local/bin/claude").path
-            // Executable metadata only: preview must never run a provider CLI.
-            let cli = detectMetadata().first(where: { $0.platform == model.platform })?.path ?? fallback
+            // The stable owned launcher resolves afresh at execution, never during preview.
+            let resolver = shellQuote(applicationSupport.appendingPathComponent("bin/standmixer").path)
+            let cliVariable = "standmixer_\(model.platform.rawValue)_cli"
             text += "<a id=\"\(spec.externalReferenceID)\"></a>\n### \(model.label) via \(model.platform.displayName) — \(spec.effort.description)\n\nRequested model: `\(model.id)`. Requested provider: \(model.platform.displayName). Native job description: `\(model.label) via \(model.platform.displayName) · <task>`.\n\n"
             let effort: String
             switch spec.effort.mode {
@@ -498,9 +528,10 @@ public final class IntegrationService: @unchecked Sendable {
             }
             text += "```sh\n"
             if model.platform == .codex {
-                text += "\(shellQuote(cli)) exec --json --sandbox <task-sandbox> -C <approved-working-directory> <approved-extra-dir-args> -m \(shellQuote(model.id)) -c \(shellQuote("model_reasoning_effort=\"\(effort)\"")) -o <temporary-result-file> - < <temporary-brief-file>\n"
+                text += "\(cliVariable)=\"$(\(resolver) resolve-cli codex)\" || exit $?\n"
+                text += "\"$\(cliVariable)\" exec --json --sandbox <task-sandbox> -C <approved-working-directory> <approved-extra-dir-args> -m \(shellQuote(model.id)) -c \(shellQuote("model_reasoning_effort=\"\(effort)\"")) -o <temporary-result-file> - < <temporary-brief-file>\n"
             } else {
-                text += "cd <approved-working-directory> && \(shellQuote(cli)) -p --model \(shellQuote(model.id)) --output-format json --effort \(shellQuote(effort)) < <temporary-brief-file> > <temporary-result-file>\n"
+                text += "cd <approved-working-directory> && \(resolver) run-claude -- -p --model \(shellQuote(model.id)) --output-format json --effort \(shellQuote(effort)) < <temporary-brief-file> > <temporary-result-file>\n"
             }
             text += "```\n\nRead the native job output for completion/diagnostics and the temporary result file for the final response. Requested \(model.label) is not proof that \(model.label) ran.\n\n"
         }

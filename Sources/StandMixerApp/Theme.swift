@@ -78,25 +78,11 @@ struct ProviderMark: View {
 }
 
 extension WorkCategory {
-    var displayTitle: String {
-        switch self {
-        case .ui: return "Visual"
-        case .implementation: return "Implementation"
-        case .algorithms: return "Algorithms"
-        case .review: return "Review & Security"
-        default: return title
-        }
-    }
+    var displayTitle: String { title }
     var taskDescription: String {
-        switch self {
-        case .coordinator: return "The current native model handles the conversation and combines results. Auto keeps it unchanged; pins apply to new sessions."
-        case .planning: return "Plans complex work when a separate plan helps; routine chat and small edits proceed directly."
-        case .ui: return "Website and app design, layout, styling, and frontend implementation."
-        case .implementation: return "Builds features and implements application logic."
-        case .algorithms: return "Develops algorithms and solves complex technical problems."
-        case .review: return "Reviews correctness, code quality, and security."
-        case .mechanical: return "Handles routine edits and repetitive maintenance."
-        }
+        self == .coordinator
+            ? "The current native model handles the conversation and combines results. Auto keeps it unchanged; pins apply to new sessions."
+            : description
     }
 
 }

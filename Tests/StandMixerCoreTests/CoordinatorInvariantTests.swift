@@ -46,7 +46,7 @@ final class CoordinatorInvariantTests: XCTestCase {
         try service.saveConfiguration(configuration)
         XCTAssertEqual(try service.loadConfiguration(), configuration)
         let preview = try service.preview(configuration: configuration)
-        XCTAssertTrue(preview.changes.contains { $0.path.hasSuffix(".claude/agents/standmixer-claude-sonnet-5-5-auto.md") && $0.after.contains("model: claude-sonnet-5-5") })
+        XCTAssertTrue(preview.changes.contains { $0.path.hasSuffix(".claude/agents/standmixer-claude-sonnet-5-5-max.md") && $0.after.contains("model: claude-sonnet-5-5") })
         XCTAssertTrue(preview.changes.contains { $0.path.hasSuffix(".agents/skills/standmixer/references/external-workers.md") && $0.after.contains("--model 'claude-sonnet-5-5'") })
         XCTAssertThrowsError(try service.preview(configuration: replacingCoordinator(sonnet.id, for: .codex), platforms: [.codex]))
     }

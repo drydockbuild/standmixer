@@ -10,12 +10,17 @@ enum StandMixerCommandLine {
         var response: StandMixerCommandResponse?
         let service = IntegrationService(executableURL: Bundle.main.executableURL)
         Task.detached {
-            response = await StandMixerCommandInterface.run(arguments: Array(arguments.dropFirst(2)), service: service)
+            if arguments.dropFirst(2).first == "run-claude" {
+                let code = await StandMixerClaudeWorker.run(arguments: Array(arguments.dropFirst(3)), service: service)
+                response = .init("", exitCode: code)
+            } else {
+                response = await StandMixerCommandHost.run(arguments: Array(arguments.dropFirst(2)), service: service)
+            }
             semaphore.signal()
         }
         semaphore.wait()
         guard let response else { return 1 }
-        print(response.text)
+        if !response.text.isEmpty { print(response.text) }
         if response.openSettings {
             let bundle = Bundle.main.bundleURL
             guard bundle.pathExtension == "app" else {

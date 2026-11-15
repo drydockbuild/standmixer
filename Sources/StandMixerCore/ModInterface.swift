@@ -1,12 +1,14 @@
 import Darwin
 import Foundation
 
-/// A small local settings protocol for the native panels. Account checks use
-/// public CLI status; Mac app installation invokes one fixed owned launcher.
+/// A small local settings protocol for the native panels. Settings actions read
+/// and write configuration; Mac app installation invokes one fixed owned launcher.
 /// Requests never supply file paths, commands, or writable preview contents.
 public struct StandMixerModRequest: Codable, Sendable {
     public enum Action: String, Codable, Sendable {
-        case state, inspect, saveDraft, savePreset, deletePreset, preview, apply, previewUninstall, uninstall, previewRestore, restore, installMac, openWeb, openMac, checkAccounts, checkUpdates
+        case state, saveDraft, savePreset, deletePreset, preview, apply, previewUninstall, uninstall, previewRestore, restore, installMac, openWeb, openMac, checkUpdates, checkClaudeConnection, connectClaude
+        /// Decode old panel requests only so callers receive an explicit retirement error.
+        case inspect, checkAccounts
     }
     public var action: Action
     public var configuration: StandMixerConfiguration?
@@ -42,6 +44,7 @@ public struct StandMixerModResponse: Encodable, Sendable {
     public var result: StandMixerModResult?
     public var inspection: StandMixerModInspection?
     public var accounts: StandMixerModAccounts?
+    public var claudeConnection: StandMixerClaudeConnectionReport?
     public var update: StandMixerUpdate?
     public var updateStatus: StandMixerUpdateStatus?
     public var web: StandMixerWebOpening?
@@ -92,6 +95,7 @@ public struct StandMixerModState: Codable, Sendable {
     public var canRestore: Bool
     public var installedMac: StandMixerInstalledMac?
     public var canCheckUpdates: Bool
+    public var canConnectClaude: Bool = false
     public var releaseVersion: String
     public var notes: [String]
 }
@@ -169,12 +173,14 @@ public final class StandMixerModInterface: @unchecked Sendable {
     public static let maximumPreviews = 8
     public static let previewLifetime: TimeInterval = 60 * 60
     let service: IntegrationService
-    let inspectionReader: (@Sendable (AgentPlatform) async throws -> AgentImportProposal)?
     private let macInstaller: (@Sendable () async throws -> ApplyResult)?
     private let webOpener: (@Sendable () async throws -> StandMixerWebOpening)?
     private let macOpener: (@Sendable () async throws -> ApplyResult)?
-    private let accountChecker: (@Sendable () async throws -> StandMixerModAccounts)?
     private let fixtureConnections: [ConnectionStatus]?
+    private let allowsClaudeConnection: Bool
+    private let claudeConnection: StandMixerClaudeConnectionService
+    private let claudeConnectionCheck: (@Sendable () async throws -> StandMixerClaudeConnectionReport)?
+    private let claudeConnector: (@Sendable () async throws -> StandMixerClaudeConnectionReport)?
     private let now: @Sendable () -> Date
     private var directory: URL { service.applicationSupport.appendingPathComponent("Previews", isDirectory: true) }
     private var configurationURL: URL { service.applicationSupport.appendingPathComponent("configuration.json") }
@@ -182,16 +188,21 @@ public final class StandMixerModInterface: @unchecked Sendable {
     /// Connections can be injected by fixture tests; normal callers use bounded
     /// known-location discovery and isolated --version probes, never inference.
     public init(service: IntegrationService, connections: [ConnectionStatus]? = nil,
-                inspectionReader: (@Sendable (AgentPlatform) async throws -> AgentImportProposal)? = nil,
                 macInstaller: (@Sendable () async throws -> ApplyResult)? = nil,
                 webOpener: (@Sendable () async throws -> StandMixerWebOpening)? = nil,
                 macOpener: (@Sendable () async throws -> ApplyResult)? = nil,
-                accountChecker: (@Sendable () async throws -> StandMixerModAccounts)? = nil,
+                allowsClaudeConnection: Bool = false,
+                claudeConnectionCheck: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil,
+                claudeConnector: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.service = service; fixtureConnections = connections
-        self.inspectionReader = inspectionReader; self.macInstaller = macInstaller
+        self.macInstaller = macInstaller
         self.webOpener = webOpener; self.macOpener = macOpener
-        self.accountChecker = accountChecker; self.now = now
+        self.allowsClaudeConnection = allowsClaudeConnection
+        self.claudeConnection = StandMixerClaudeConnectionService(service: service)
+        self.claudeConnectionCheck = claudeConnectionCheck
+        self.claudeConnector = claudeConnector
+        self.now = now
     }
 
     public func runJSON(_ data: Data) async -> StandMixerModExecution {
@@ -205,7 +216,8 @@ public final class StandMixerModInterface: @unchecked Sendable {
             if let object,
                let action = object["action"] as? String,
                [StandMixerModRequest.Action.installMac.rawValue, StandMixerModRequest.Action.openWeb.rawValue,
-                StandMixerModRequest.Action.openMac.rawValue, StandMixerModRequest.Action.checkAccounts.rawValue].contains(action),
+                StandMixerModRequest.Action.openMac.rawValue, StandMixerModRequest.Action.checkAccounts.rawValue,
+                StandMixerModRequest.Action.checkClaudeConnection.rawValue, StandMixerModRequest.Action.connectClaude.rawValue].contains(action),
                Set(object.keys) != ["action"] {
                 throw ProtocolError("invalidRequest", "\(action) takes no fields other than action. Paths and commands are not accepted.")
             }
@@ -256,6 +268,20 @@ public final class StandMixerModInterface: @unchecked Sendable {
 
     private func execute(_ request: StandMixerModRequest) async throws -> StandMixerModResponse {
         switch request.action {
+        case .checkClaudeConnection, .connectClaude:
+            guard allowsClaudeConnection else {
+                throw ProtocolError("connectionUnavailable", "Connect Claude from the native Codex panel or StandMixer Mac app. Settings remain available without connecting.")
+            }
+            let result: StandMixerClaudeConnectionReport
+            if request.action == .checkClaudeConnection {
+                if let claudeConnectionCheck { result = try await claudeConnectionCheck() }
+                else { result = try await claudeConnection.check() }
+            } else {
+                if let claudeConnector { result = try await claudeConnector() }
+                else { result = try await claudeConnection.connect() }
+            }
+            try Task.checkCancellation()
+            return .init(ok: true, claudeConnection: result)
         case .checkUpdates:
             let status = await StandMixerUpdateChecker.status(service: service, refresh: request.refresh == true)
             return .init(ok: true, update: status.update, updateStatus: status)
@@ -273,13 +299,8 @@ public final class StandMixerModInterface: @unchecked Sendable {
             else { opened = try await StandMixerAppOpening.openMac(service: service) }
             try Task.checkCancellation()
             return .init(ok: true, result: .init(message: opened.message, changedFiles: 0, notes: []))
-        case .checkAccounts:
-            try Task.checkCancellation()
-            let accounts: StandMixerModAccounts
-            if let accountChecker { accounts = try await accountChecker() }
-            else { accounts = try await StandMixerAccountChecker.check(service: service) }
-            try Task.checkCancellation()
-            return .init(ok: true, accounts: accounts)
+        case .inspect, .checkAccounts:
+            throw ProtocolError("retiredAction", "StandMixer manages routing settings only. Preference inspection and account checks have been removed. Use state to read saved settings; manage sign-in in Codex or Claude Code.")
         case .installMac:
             // Building is independent of native settings transactions. Never
             // hold their operation lock or discover/start an observer here.
@@ -292,8 +313,6 @@ public final class StandMixerModInterface: @unchecked Sendable {
         case .state:
             let connections = await connections()
             return .init(ok: true, state: try readState(connections: connections, requestedPlatforms: request.platforms))
-        case .inspect:
-            return try await inspectPreferences(platforms: request.platforms, refresh: request.refresh ?? false)
         case .saveDraft, .savePreset:
             let connections = await connections()
             let configuration = try validatedDraft(request, connections: connections)
@@ -445,8 +464,8 @@ public final class StandMixerModInterface: @unchecked Sendable {
         let catalog = Dictionary(uniqueKeysWithValues:
             ModelSpec.catalog(discovered: service.discoveredModels(), custom: configuration.customModels).map { ($0.id, $0) })
         for profile in configuration.profiles where platforms.contains(profile.platform) {
-            for route in profile.routes where route.category != .coordinator {
-                var selectedModels = [route.modelID] + route.additionalAgents.map(\.modelID)
+            for route in profile.effectiveRoutes where route.category != .coordinator {
+                var selectedModels = [route.modelID] + (route.additionalAgents + route.stuckEscalation).map(\.modelID)
                 if route.resultMode == .ai, let judge = route.judgeModelID { selectedModels.append(judge) }
                 for id in selectedModels {
                     guard let model = catalog[id], !platforms.contains(model.platform) else { continue }
@@ -482,10 +501,12 @@ public final class StandMixerModInterface: @unchecked Sendable {
             connections: connections.map(StandMixerModConnection.init), installation: try service.installationStatus(),
             savedPresets: try service.loadSavedPresets(),
             nativeSettings: AgentPlatform.allCases.map { StandMixerModNativeSettings.capture(platform: $0, service: service) },
-            inspection: try? loadCachedInspection(),
+            inspection: nil,
             canRestore: service.canRestore,
             installedMac: StandMixerAppOpening.installedMac(service: service),
-            canCheckUpdates: !service.metadataOnlyDiscovery, releaseVersion: StandMixerRelease.version,
+            canCheckUpdates: !service.metadataOnlyDiscovery,
+            canConnectClaude: allowsClaudeConnection && !service.metadataOnlyDiscovery,
+            releaseVersion: StandMixerRelease.version,
             notes: notes)
     }
 

@@ -41,16 +41,12 @@ public enum StandMixerAccountChecker {
     static func check(service: IntegrationService, executables: [AgentPlatform: URL]?, runner: StatusRunner?,
                       timeout: TimeInterval = maximumDuration) async throws -> StandMixerModAccounts {
         try Task.checkCancellation()
+        let deadline = ProcessInfo.processInfo.systemUptime + min(maximumDuration, max(0.01, timeout))
         guard !service.metadataOnlyDiscovery || runner != nil else {
             return .init(providers: AgentPlatform.allCases.map {
                 .init(platform: $0, status: .unknown, detail: "CLI account checks are disabled in fixture mode. No status command was started.")
             })
         }
-        // Public status checks do not spend time on version probes, infer
-        // identity from other CLI installations, or inspect credential stores.
-        let selected = executables ?? Dictionary(uniqueKeysWithValues: service.detectMetadata().compactMap { connection in
-            connection.path.map { (connection.platform, URL(fileURLWithPath: $0)) }
-        })
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent("standmixer-account-status-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: staging) }
@@ -64,24 +60,34 @@ public enum StandMixerAccountChecker {
         if environment["PATH"]?.isEmpty != false { environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin" }
         let launchEnvironment = environment
         let statusRunner = runner ?? runStatus
-        let deadline = min(maximumDuration, max(0.01, timeout))
         let reports = try await withThrowingTaskGroup(of: StandMixerCLIAccount.self) { group in
             for platform in AgentPlatform.allCases {
                 group.addTask {
                     try Task.checkCancellation()
-                    guard let executable = selected[platform] else {
-                        return .init(platform: platform, status: .unknown, detail: "CLI not found in known installation locations. Install it separately, then check again.")
-                    }
-                    let arguments = platform == .claude ? ["auth", "status", "--json"] : ["login", "status"]
+                    var selectedPath: String?
                     do {
-                        let output = try await statusRunner(platform, executable, arguments, launchEnvironment, staging, deadline)
+                        // Preserve the active/newest verified policy, with at most four
+                        // concurrent probes across both providers and no account fallback.
+                        let selected: URL?
+                        if let executables { selected = executables[platform] }
+                        else if service.metadataOnlyDiscovery { selected = nil }
+                        else { selected = try await service.cliDiscovery.select(platform, deadline: deadline)?.executable }
+                        try Task.checkCancellation()
+                        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+                        guard remaining > 0 else { throw AgentImportError.timedOut(timeout) }
+                        guard let executable = selected else {
+                            return .init(platform: platform, status: .unknown, detail: "No working CLI could be verified in known installation locations. Install or repair it, then check again.")
+                        }
+                        selectedPath = executable.path
+                        let arguments = platform == .claude ? ["auth", "status", "--json"] : ["login", "status"]
+                        let output = try await statusRunner(platform, executable, arguments, launchEnvironment, staging, remaining)
                         try Task.checkCancellation()
                         return parse(output, platform: platform, cliPath: executable.path)
                     } catch is CancellationError { throw CancellationError() }
                     catch AgentImportError.timedOut {
-                        return .init(platform: platform, status: .unknown, detail: "The selected CLI's public sign-in status exceeded ten seconds and was stopped. Retry this check or use its status command in Terminal.", cliPath: executable.path)
+                        return .init(platform: platform, status: .unknown, detail: "CLI verification and public sign-in status exceeded this check's time budget and were stopped. Retry this check or use the CLI's status command in Terminal.", cliPath: selectedPath)
                     } catch {
-                        return .init(platform: platform, status: .unknown, detail: "The selected CLI's public sign-in status could not be checked. Update the CLI or run its status command in Terminal. No account was changed.", cliPath: executable.path)
+                        return .init(platform: platform, status: .unknown, detail: "The selected CLI's public sign-in status could not be checked. Update the CLI or run its status command in Terminal. No account was changed.", cliPath: selectedPath)
                     }
                 }
             }
@@ -117,7 +123,7 @@ public enum StandMixerAccountChecker {
                   CFGetTypeID(loggedIn) == CFBooleanGetTypeID() else { return unknown() }
             if !loggedIn.boolValue {
                 return .init(platform: platform, status: .signedOut,
-                    detail: "The selected Claude Code CLI reports that it is signed out. Desktop app accounts can differ.", cliPath: cliPath)
+                    detail: "The selected Claude Code CLI reports that it is signed out when launched outside Claude Desktop. Desktop app accounts can differ; selecting its managed executable does not share the Desktop session.", cliPath: cliPath)
             }
             guard output.succeeded else { return unknown() }
             let method = (object["authMethod"] as? String ?? "").lowercased()
@@ -157,7 +163,7 @@ public enum StandMixerAccountChecker {
     }
     private static func safeSubscription(_ value: Any?) -> String? {
         guard let text = value as? String else { return nil }
-        let recognized = ["free", "pro", "max", "team", "teams", "enterprise", "api", "max_5x", "max_20x"]
+        let recognized = ["free", "pro", "max", "ultra", "team", "teams", "enterprise", "api", "max_5x", "max_20x"]
         return recognized.contains(text.lowercased()) ? text : nil
     }
 }

@@ -18,10 +18,11 @@ engine = parser.parse_args().helper.resolve()
 
 with tempfile.TemporaryDirectory(prefix="standmixer-plugin-e2e-", dir="/private/tmp") as temporary:
     home = Path(temporary) / "home"
+    marker = home / "unexpected-cli-execution"
     for platform in ["codex", "claude"]:
         cli = home / ".local/bin" / platform
         cli.parent.mkdir(parents=True, exist_ok=True)
-        cli.write_text("#!/bin/sh\nexit 99\n")
+        cli.write_text("#!/bin/sh\ntouch '" + str(marker) + "'\nexit 99\n")
         cli.chmod(0o700)
     codex = home / ".codex/config.toml"
     claude = home / ".claude/settings.json"
@@ -37,22 +38,32 @@ with tempfile.TemporaryDirectory(prefix="standmixer-plugin-e2e-", dir="/private/
         return response
 
     initial = call("state")
+    invalid_resolver = subprocess.run([str(engine), "--test-home", str(home), "--standmixer", "resolve-cli", "invalid"], text=True, capture_output=True, timeout=10)
+    assert invalid_resolver.returncode != 0 and not invalid_resolver.stdout
+    assert "resolve-cli <claude|codex>" in invalid_resolver.stderr
     assert set(initial) == {"ok", "state"}
     state = initial["state"]
     assert set(state).issubset({"configuration", "hasSavedDraft", "previousDraft", "enabledPlatforms", "preferredPlatforms",
                                "availablePlatforms", "presets", "catalog", "connections", "installation", "savedPresets",
-                               "nativeSettings", "inspection", "canRestore", "installedMac", "canCheckUpdates", "releaseVersion", "notes"})
+                               "nativeSettings", "canRestore", "installedMac", "canCheckUpdates", "canConnectClaude", "releaseVersion", "notes"})
     assert set(state["availablePlatforms"]) == {"codex", "claude"}
     assert not state["installation"]["hasInstallation"]
     assert not (home / "Library/Application Support/StandMixer").exists()
     assert call("unsupportedAction")["error"]["code"] == "invalidRequest"
-    inspection = call("inspect")["inspection"]
-    assert all(report["status"] == "failed" and "Fixture inspection is disabled" in report["error"] for report in inspection["reports"])
-    assert call("inspect")["inspection"]["fromCache"]
+    for retired in ("inspect", "checkAccounts"):
+        assert call(retired)["error"]["code"] == "retiredAction"
+    assert call("inspect", platforms=["codex", "claude"], refresh=True)["error"]["code"] == "retiredAction"
+    assert not (home / "Library/Application Support/StandMixer").exists()
     fast = next(p["configuration"] for p in state["presets"] if p["id"] == "fast")
     plan = call("preview", configuration=fast, platforms=["codex", "claude"])["preview"]
-    # Auto preserves both native defaults; canonical controls and routes add12files.
-    assert plan["changedFiles"] == 12
+    # Worker definitions vary with the preset's model/effort assignments. Check
+    # the plan contract and required routing files instead of a legacy count.
+    assert plan["changedFiles"] > 0
+    assert plan["changedFiles"] == sum(file["isChanged"] for file in plan["changes"])
+    planned_paths = [Path(file["path"]).resolve() for file in plan["changes"] if file["isChanged"]]
+    assert all(path.is_relative_to(home.resolve()) for path in planned_paths)
+    assert (home / ".codex/AGENTS.md").resolve() in planned_paths
+    assert (home / ".claude/CLAUDE.md").resolve() in planned_paths
     assert all("before" not in file and "after" not in file for file in plan["changes"])
     assert tomllib.loads(codex.read_text())["model"] == "original-codex"
     instructions = home / ".codex/AGENTS.md"
@@ -81,6 +92,7 @@ with tempfile.TemporaryDirectory(prefix="standmixer-plugin-e2e-", dir="/private/
     assert json.loads(claude.read_text())["model"] == "original-claude"
     assert not call("state")["state"]["installation"]["hasInstallation"]
     assert instructions.read_text() == "# changed after review\n"
+    assert not marker.exists(), "Fixture CLI was executed by settings workflow"
     print("Packaged helper: state contract, unsupported action, exact review/apply, stale rejection, two presets, restore, and original-baseline uninstall passed.")
 
     def install():

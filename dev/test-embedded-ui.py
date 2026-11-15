@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fixture-only MCP and loopback HTTP smoke checks. Never starts inference."""
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -29,12 +30,21 @@ def main():
             file.write_text("#!/bin/sh\ntouch '" + str(marker) + "'\nexit 1\n")
             file.chmod(0o700)
         base = [str(args.helper.resolve()), "--test-home", str(home), "--ui-root", str(args.ui_root.resolve())]
+        discovery = subprocess.run(base + ["--mcp"], input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "resources/list"}) + "\n",
+                                   text=True, capture_output=True, timeout=30)
+        assert discovery.returncode == 0, discovery.stderr
+        resources = json.loads(discovery.stdout)["result"]["resources"]
+        assert len(resources) == 1
+        resource_uri = resources[0]["uri"]
+        bundled_html = (args.ui_root / "index.html").read_bytes()
+        assert resource_uri == "ui://standmixer/settings-" + hashlib.sha256(bundled_html).hexdigest() + ".html"
         methods = [
             ("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}}),
             ("tools/list", {}),
-            ("resources/read", {"uri": "ui://standmixer/settings.html"}),
+            ("resources/read", {"uri": resource_uri}),
             ("tools/call", {"name": "open_standmixer", "arguments": {}}),
             ("tools/call", {"name": "standmixer_action", "arguments": {"action": "inspect", "platforms": ["codex"]}}),
+            ("tools/call", {"name": "standmixer_action", "arguments": {"action": "checkAccounts"}}),
         ]
         requests = "".join(json.dumps({"jsonrpc": "2.0", "id": index + 1, "method": method, "params": params}) + "\n"
                            for index, (method, params) in enumerate(methods))
@@ -44,14 +54,22 @@ def main():
         assert len(responses) == len(methods)
         assert responses[1]["result"]["protocolVersion"] == "2025-11-25"
         assert len(responses[2]["result"]["tools"]) == 2
+        opening_tool = next(tool for tool in responses[2]["result"]["tools"] if tool["name"] == "open_standmixer")
+        assert opening_tool["_meta"]["ui"]["resourceUri"] == resource_uri
         action_tool = next(tool for tool in responses[2]["result"]["tools"] if tool["name"] == "standmixer_action")
         properties = action_tool["inputSchema"]["properties"]
-        assert set(properties["action"]["enum"]) == {"state", "inspect", "saveDraft", "savePreset", "deletePreset", "preview",
+        assert set(properties["action"]["enum"]) == {"state", "saveDraft", "savePreset", "deletePreset", "preview",
                                                     "apply", "previewUninstall", "uninstall", "previewRestore", "restore",
-                                                    "installMac", "openWeb", "openMac", "checkAccounts", "checkUpdates"}
+                                                    "installMac", "openWeb", "openMac", "checkUpdates", "checkClaudeConnection", "connectClaude"}
         assert set(properties) == {"action", "configuration", "platforms", "previewID", "presetID", "name", "refresh"}
         assert responses[3]["result"]["contents"][0]["mimeType"] == "text/html;profile=mcp-app"
+        assert responses[3]["result"]["contents"][0]["uri"] == resource_uri
+        assert responses[3]["result"]["contents"][0]["text"].encode() == bundled_html
         assert responses[4]["result"]["structuredContent"]["ok"]
+        assert responses[4]["result"]["_meta"]["ui"]["resourceUri"] == resource_uri
+        for index in (5, 6):
+            assert responses[index]["result"]["isError"]
+            assert responses[index]["result"]["structuredContent"]["error"]["code"] == "retiredAction"
         unsupported = [{"action": "unsupportedAction"}, {"action": "state", "unexpectedField": True}]
         invalid_requests = "".join(json.dumps({"jsonrpc": "2.0", "id": index + 1, "method": "tools/call",
                                                "params": {"name": "standmixer_action", "arguments": arguments}}) + "\n"
@@ -62,7 +80,7 @@ def main():
         assert len(rejected) == len(unsupported)
         assert all(response["result"]["structuredContent"]["error"]["code"] == "invalidRequest" for response in rejected)
         assert not marker.exists(), "Fixture CLI was executed"
-        print("MCP stdio: passed (settings schema, 5 responses, unsupported action/field rejected, no CLI execution)")
+        print("MCP stdio: passed (settings schema, 6 responses, retired and unsupported actions rejected, no CLI execution)")
 
         process = subprocess.Popen(base + ["--serve-ui", "--detached-ui"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
@@ -99,13 +117,19 @@ def main():
             assert not (home / ".codex").exists() and not (home / ".claude").exists(), "Native settings were created"
             print("HTTP socket: passed (bundled HTML, authenticated state, rejected Origin/token, no native writes)")
 
-            def action(name, okay=True, **fields):
-                request = urllib.request.Request(origin + "/api", data=json.dumps({"action": name, **fields}).encode(), headers=headers)
+            def action(action_name, okay=True, **fields):
+                request = urllib.request.Request(origin + "/api", data=json.dumps({"action": action_name, **fields}).encode(), headers=headers)
                 with urllib.request.urlopen(request, timeout=10) as response:
                     result = json.load(response)
                 assert result["ok"] == okay, result
                 return result
 
+            for retired in ("inspect", "checkAccounts"):
+                assert action(retired, okay=False)["error"]["code"] == "retiredAction"
+            assert state_response["state"]["canConnectClaude"] is False
+            for connection_action in ("checkClaudeConnection", "connectClaude"):
+                assert action(connection_action, okay=False)["error"]["code"] == "connectionUnavailable"
+            assert not marker.exists(), "Browser transport launched a connection command"
             codex = home / ".codex/config.toml"
             claude = home / ".claude/settings.json"
             codex.parent.mkdir()
@@ -118,6 +142,8 @@ def main():
                 path.write_bytes(content)
             state = action("state")["state"]
             configuration = next(p["configuration"] for p in state["presets"] if p["id"] == "fast")
+            action("saveDraft", configuration=configuration, platforms=["codex", "claude"])
+            action("savePreset", configuration=configuration, platforms=["codex", "claude"], name="Offline fixture")
             native = next(model for model in state["catalog"] if model["platform"] == "codex")
             profile = next(p for p in configuration["profiles"] if p["platform"] == "codex")
             controller = next(route for route in profile["routes"] if route["category"] == "coordinator")

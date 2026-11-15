@@ -572,19 +572,8 @@ final class ModInterfaceTests: XCTestCase {
     }
 
 
-    func testAccountCheckIsExplicitEphemeralAndAcceptsNoExtraFields() async throws {
-        actor Calls { var count = 0; func started() { count += 1 } }
-        let calls = Calls()
-        let api = StandMixerModInterface(service: service, connections: connections, accountChecker: {
-            await calls.started()
-            return .init(checkedAt: Date(timeIntervalSince1970: 1_800_000_000), providers: [
-                .init(platform: .claude, status: .signedIn, email: "fixture@example.invalid", subscription: "max", detail: "Fixture public CLI status", cliPath: "/fixture/claude")
-            ])
-        })
-        let initial = try await send(.init(action: .state), to: api)
-        XCTAssertNil(initial.1["accounts"])
-        let before = await calls.count
-        XCTAssertEqual(before, 0)
+    func testRetiredAccountCheckAcceptsNoExtraFieldsAndDoesNotWrite() async throws {
+        let api = StandMixerModInterface(service: service, connections: connections)
         for extra: [String: Any] in [["platforms": ["claude"]], ["path": "/private/auth"], ["command": "login"], ["refresh": true], ["name": NSNull()]] {
             var request = extra; request["action"] = "checkAccounts"
             let result = await api.runJSON(try JSONSerialization.data(withJSONObject: request))
@@ -592,16 +581,9 @@ final class ModInterfaceTests: XCTestCase {
             XCTAssertEqual((object["error"] as? [String: Any])?["code"] as? String, "invalidRequest")
         }
         let checked = try await send(.init(action: .checkAccounts), to: api)
-        XCTAssertEqual(checked.0.exitCode, 0)
-        XCTAssertEqual(Set(checked.1.keys), ["ok", "accounts"])
-        let accounts = try XCTUnwrap(checked.1["accounts"] as? [String: Any])
-        XCTAssertNotNil(ISO8601DateFormatter().date(from: try XCTUnwrap(accounts["checkedAt"] as? String)))
-        let providers = try XCTUnwrap(accounts["providers"] as? [[String: Any]])
-        XCTAssertEqual(providers.first?["email"] as? String, "fixture@example.invalid")
-        let count = await calls.count
-        XCTAssertEqual(count, 1)
-        let later = try await send(.init(action: .state), to: api)
-        XCTAssertNil(later.1["accounts"], "Account identity must not be cached or persisted into state.")
+        XCTAssertEqual(checked.0.exitCode, 1)
+        XCTAssertEqual((checked.1["error"] as? [String: Any])?["code"] as? String, "retiredAction")
+        XCTAssertNil(checked.1["accounts"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.applicationSupport.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.home.path))
     }

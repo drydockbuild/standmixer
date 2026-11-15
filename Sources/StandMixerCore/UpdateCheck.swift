@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum StandMixerRelease {
-    public static let version = "0.1.8"
+    public static let version = "0.2.6"
 }
 
 public struct StandMixerUpdate: Codable, Sendable {

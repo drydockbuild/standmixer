@@ -56,9 +56,9 @@ final class StandMixerUIEngine: @unchecked Sendable {
 }
 
 struct StandMixerUIAssets {
-    static let resourceURI = "ui://standmixer/settings.html"
     static let mimeType = "text/html;profile=mcp-app"
     let html: Data
+    let resourceURI: String
     let contentSecurityPolicy: String
 
     /// This directory comes only from a trusted process argument, never a web or
@@ -74,6 +74,10 @@ struct StandMixerUIAssets {
         guard let source = String(data: html, encoding: .utf8), source.contains("<html") else {
             throw Self.failure("The bundled StandMixer panel is invalid.")
         }
+        // Hosts may persist MCP resources across process restarts. The URI must
+        // identify this exact immutable HTML snapshot, not a mutable file path.
+        let digest = SHA256.hash(data: html).map { String(format: "%02x", $0) }.joined()
+        resourceURI = "ui://standmixer/settings-\(digest).html"
         // The distributable is a self-contained HTML document. Hash its scripts
         // rather than allowing inline handlers, eval, or scripts from the network.
         let expression = try NSRegularExpression(pattern: "<script\\b[^>]*>([\\s\\S]*?)</script>", options: [.caseInsensitive])

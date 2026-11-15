@@ -12,7 +12,7 @@ Open the native panel with `open_standmixer`. If unavailable, explain that the p
 
 Web is explicit-only: this plugin's `scripts/open-ui.sh` returns a private local URL. Ask for needed permissions only if blocked; do not change global permissions.
 
-Choose and edit presets in the panel. Selection, saving, and inspection do not apply routing. Review and Apply uses the exact stored preview; never silently apply defaults just to open settings. Uninstall and restore also require their reviewed confirmation.
+Choose and edit presets in the panel. Selection and saving do not apply routing. Review and Apply uses the exact stored preview; never silently apply defaults just to open settings. Uninstall and restore also require their reviewed confirmation.
 
 For an explicit status request, use the bundled helper's `--standmixer status`. For a worker test, run only the requested installed route and report actual execution metadata when available. Opening the UI does not test recipes or model access.
 
@@ -20,6 +20,6 @@ For an explicit `install-mac` request, run `~/Library/Application Support/StandM
 
 For an explicit `update` request, run `"$HOME/Library/Application Support/StandMixer/bin/standmixer" update`. `update --mac` also rebuilds the optional Mac app. Updates preserve presets and model defaults. Report progress and failures; never check for or run updates unprompted.
 
-Controller Auto preserves the currently selected native model. Ordinary questions and small edits need no extra intake or planning agent. Delegation follows task needs, explicit instructions, and project permissions. CLI-launched workers use their CLI account, which can differ from a desktop login; Sources can check exposed account metadata without reading credentials or changing logins.
+Controller Auto preserves the currently selected native model. Ordinary questions and small edits need no extra intake or planning agent. Delegation follows task needs, explicit instructions, and project permissions. Settings configure routing and read saved local files without models or required sign-in. For Codex-to-Claude work, use the optional **Connect Claude for Codex** action or the explicit `standmixer connect-claude` command. It runs Claude Code’s official browser login; credentials stay with the CLI. Worker recipes use the checked connection. On a confirmed authentication failure, offer this flow and wait for the user; never automatically replay work that may have started, switch providers, or treat a network/usage error as a sign-in failure.
 
 The UI and local helper manage only known harness settings. Do not read credentials, search personal folders, or manually reconstruct configuration. If this host cannot show the panel, report that specific limitation rather than claiming the UI opened.

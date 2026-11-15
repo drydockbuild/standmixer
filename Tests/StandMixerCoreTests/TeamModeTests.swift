@@ -27,26 +27,6 @@ final class TeamModeTests: XCTestCase {
             .components(separatedBy: "\n\n").first!
     }
 
-    func testFactoryAlgorithmsUseSingleApprovedLeadWithAutoEffort() throws {
-        for available in [Set<AgentPlatform>([.codex, .claude]), [.codex], [.claude]] {
-            let configuration = StandMixerConfiguration.preset(.optimized, availablePlatforms: available)
-            let codex = try XCTUnwrap(configuration.profile(for: .codex)?.route(for: .algorithms))
-            let claude = try XCTUnwrap(configuration.profile(for: .claude)?.route(for: .algorithms))
-            XCTAssertEqual([codex.modelID] + codex.additionalAgents.map(\.modelID), ["gpt-6-astra"])
-            XCTAssertEqual([claude.modelID] + claude.additionalAgents.map(\.modelID), ["claude-opus-5-5"])
-            for profile in configuration.profiles {
-                for route in profile.routes {
-                    XCTAssertEqual(route.teamMode, route.category == .review ? .parallel : .leadReview)
-                    XCTAssertEqual(route.effort, .auto)
-                    XCTAssertTrue(route.additionalAgents.allSatisfy { $0.effort == .auto })
-                }
-            }
-        }
-        for profile in StandMixerConfiguration.preset(.high, availablePlatforms: [.codex, .claude]).profiles {
-            XCTAssertTrue(profile.routes.allSatisfy { $0.teamMode == .parallel })
-        }
-    }
-
     func testLegacyMissingTeamModeRetainsIndependentManualSemanticsAndExplicitModesPersist() throws {
         let explicit = Route(category: .planning, modelID: "gpt-6-astra", effort: .fixed("high"),
             additionalAgents: [.init(modelID: "gpt-6.1-sol", effort: .auto)], resultMode: .user, teamMode: .leadReview)
@@ -68,7 +48,7 @@ final class TeamModeTests: XCTestCase {
     func testOptimizedPlanningAndAlgorithmsStageReviewAfterSubstantiveWorkWithoutLoweringEffort() throws {
         var configuration = StandMixerConfiguration.defaults
         change(&configuration, .planning) { $0.additionalAgents = [.init(modelID: "gpt-6.1-sol"), .init(modelID: "gpt-6-luna")] }
-        change(&configuration, .algorithms) { $0.additionalAgents = [.init(modelID: "claude-opus-5-5")] }
+        change(&configuration, .algorithms) { $0.inheritsTeam = false; $0.additionalAgents = [.init(modelID: "claude-opus-5-5")] }
         let exported = try policy(configuration)
         let planning = try block(.planning, in: exported)
         XCTAssertTrue(planning.contains("first worker creates the substantive plan; then the remaining 2 workers give quick focused review of that plan"))
@@ -87,8 +67,10 @@ final class TeamModeTests: XCTestCase {
         XCTAssertFalse(opus.after.contains("--effort 'low'"))
     }
 
-    func testOptimizedVisualKeepsImplementationWithPrimaryOrExplicitUserWinner() throws {
-        let exported = try policy(.defaults)
+    func testConfiguredDesignTeamKeepsImplementationWithPrimaryOrExplicitUserWinner() throws {
+        var configuration = StandMixerConfiguration.defaults
+        change(&configuration, .ui) { $0.additionalAgents = [.init(modelID: "claude-opus-5-5")] }
+        let exported = try policy(configuration)
         let visual = try block(.ui, in: exported)
         XCTAssertTrue(visual.contains("may make basic design passes concurrently"))
         XCTAssertTrue(visual.contains("helpers provide basic alternatives only, not full implementations"))
@@ -101,7 +83,7 @@ final class TeamModeTests: XCTestCase {
 
     func testTeamModeOnlyEditChangesRoutingWithoutRewritingModelsOrEffort() throws {
         var configuration = StandMixerConfiguration.defaults
-        change(&configuration, .algorithms) { $0.additionalAgents = [.init(modelID: "claude-opus-5-5")] }
+        change(&configuration, .algorithms) { $0.inheritsTeam = false; $0.additionalAgents = [.init(modelID: "claude-opus-5-5")] }
         _ = try service.apply(preview: service.preview(configuration: configuration, platforms: [.codex]))
         change(&configuration, .algorithms) { $0.teamMode = .parallel }
         let preview = try service.preview(configuration: configuration, platforms: [.codex])
@@ -115,8 +97,16 @@ final class TeamModeTests: XCTestCase {
         XCTAssertFalse(algorithms.contains("Lead + review"))
     }
 
-    func testHighRetainsIndependentPassesAndReviewLeadConsolidatesWithoutUnconfiguredJudges() throws {
-        let exported = try policy(.preset(.high, availablePlatforms: [.codex, .claude]))
+    func testManualParallelTeamsGuideIndependentPassesWithoutUnconfiguredJudges() throws {
+        var configuration = StandMixerConfiguration.defaults
+        for category in [WorkCategory.planning, .ui, .algorithms, .review] {
+            change(&configuration, category) {
+                $0.inheritsTeam = false
+                $0.teamMode = .parallel
+                $0.additionalAgents = [.init(modelID: "gpt-6.1-sol")]
+            }
+        }
+        let exported = try policy(configuration)
         for (category, guidance) in [(WorkCategory.planning, "full independent plans"), (.ui, "full independent design alternatives"), (.algorithms, "full independent solutions"), (.review, "full independent checks")] {
             let route = try block(category, in: exported)
             XCTAssertTrue(route.contains("Parallel:"))
@@ -128,7 +118,7 @@ final class TeamModeTests: XCTestCase {
         XCTAssertFalse(exported.contains("Do not add unconfigured critics, consensus votes, or review loops"))
         XCTAssertTrue(try block(.ui, in: exported).contains("selected design's model"))
         var configuredJudge = StandMixerConfiguration.defaults
-        change(&configuredJudge, .algorithms) { $0.additionalAgents = [.init(modelID: "claude-opus-5-5")]; $0.resultMode = .ai; $0.judgeModelID = "gpt-6.1-sol" }
+        change(&configuredJudge, .algorithms) { $0.inheritsTeam = false; $0.additionalAgents = [.init(modelID: "claude-opus-5-5")]; $0.resultMode = .ai; $0.judgeModelID = "gpt-6.1-sol" }
         XCTAssertTrue(try policy(configuredJudge).contains("launch a fresh `standmixer-gpt-6.1-sol-auto` instance with a compare-only brief"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.home.path))
     }

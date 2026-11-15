@@ -20,9 +20,6 @@ final class AppStore: ObservableObject {
     @Published private(set) var savedPresets: [SavedRoutingPreset] = []
     @Published private(set) var hasDetectedConnections = false
     @Published private(set) var isChecking = false
-    @Published private(set) var isCheckingAccounts = false
-    @Published private(set) var accounts: StandMixerModAccounts?
-    @Published private(set) var accountError: String?
     @Published private(set) var isPreparingPreview = false
     @Published private(set) var isApplying = false
     @Published private(set) var isPreparingUninstall = false
@@ -37,9 +34,36 @@ final class AppStore: ObservableObject {
     @Published var notice: String?
     @Published private(set) var noticeIsWarning = false
     @Published var showRestoreConfirmation = false
+    @Published var claudeConnectionPresentation: ClaudeConnectionPresentation?
+    var showsClaudeConnection: Bool { claudeConnectionPresentation != nil }
+    @Published private(set) var claudeConnection: StandMixerClaudeConnectionReport?
+    @Published private(set) var claudeConnectionActivity: ClaudeConnectionActivity?
+    @Published private(set) var claudeConnectionError: String?
+    @Published private(set) var claudeConnectionWasAutomatic = false
+    private var claudePromptSuppressed = false
+    // Confirmation belongs to this open/choice, never to the app's lifetime.
+    private var claudeConnectionIntent = 0
+    private var confirmedClaudeConnectionIntent: Int?
+    private var needsOpeningClaudeCheck = true
+    private var savedOpeningConfiguration: StandMixerConfiguration?
+    private var usesOpeningClaudeRequirement = true
+    private var openingRequiresClaude = false
+    private var checkingClaudeQuietly = false
+    private var claudePreviewConfiguration: StandMixerConfiguration?
+    // Retain the identity after SwiftUI clears its binding, until that sheet's
+    // onDisappear finishes cleanup. A newer check/presentation invalidates it.
+    private var activeClaudeConnectionPresentationID: UUID?
+
+    enum ClaudeConnectionActivity { case checking, connecting }
+    struct ClaudeConnectionPresentation: Identifiable { let id = UUID() }
     let currentSettings: CurrentSettingsController
 
     private let service: IntegrationService
+    private let claudeConnectionService: StandMixerClaudeConnectionService
+    private var claudeConnectionTask: Task<Void, Never>?
+    private var pendingClaudeConnectionTasks: [Int: Task<Void, Never>] = [:]
+    private var claudeConnectionGeneration = 0
+    private(set) var isTerminating = false
     private let isSnapshot = ProcessInfo.processInfo.arguments.contains("--snapshot")
     private var needsInitialPreset = true
     private var previewGeneration = 0
@@ -72,7 +96,8 @@ final class AppStore: ObservableObject {
 
     init(service: IntegrationService = IntegrationService(executableURL: Bundle.main.executableURL)) {
         self.service = service
-        currentSettings = CurrentSettingsController(service: AgentImportService(integration: service))
+        claudeConnectionService = StandMixerClaudeConnectionService(service: service)
+        currentSettings = CurrentSettingsController(service: service)
         if !isSnapshot {
             do {
                 let loaded = try service.loadConfiguration()
@@ -84,6 +109,7 @@ final class AppStore: ObservableObject {
                 configuration.customModels = loaded.customModels
                 configuration.enabledPlatforms = loaded.enabledPlatforms
                 previousDraft = hasDraft ? loaded : preserved
+                savedOpeningConfiguration = hasDraft ? loaded : nil
                 draftNeedsPreserving = hasDraft && loaded != preserved
                 if !service.configurationRecoveryNotes.isEmpty {
                     notice = service.configurationRecoveryNotes.joined(separator: " ")
@@ -167,7 +193,7 @@ final class AppStore: ObservableObject {
     /// An applied policy is distinct from the saved native model observed on disk.
     func appliedRoute(_ category: WorkCategory, in platform: AgentPlatform) -> Route? {
         guard let status = installationStatus, status.state == .applied, status.installedPlatforms.contains(platform) else { return nil }
-        return status.appliedConfiguration?.profile(for: platform)?.route(for: category)
+        return status.appliedConfiguration?.profile(for: platform)?.effectiveRoute(for: category)
     }
     func appliedController(in platform: AgentPlatform) -> ImportedRoute? {
         guard let status = installationStatus, status.state == .applied, status.installedPlatforms.contains(platform),
@@ -176,23 +202,173 @@ final class AppStore: ObservableObject {
             evidence: [.init(path: "StandMixer installation record", explanation: "Verified controller policy; the current chat model may differ from saved native defaults.")],
             additionalAgents: [], resultMode: .coordinator)
     }
-    func route(_ category: WorkCategory) -> Route { profile.route(for: category) ?? StandMixerConfiguration.defaults.profile(for: selectedPlatform)!.route(for: category)! }
+    func route(_ category: WorkCategory) -> Route { route(category, in: selectedPlatform) }
     func editBaselineRoute(_ category: WorkCategory, in platform: AgentPlatform) -> Route? {
         guard isEditing else { return nil }
-        return editSnapshot?.configuration.profile(for: platform)?.route(for: category)
+        return editSnapshot?.configuration.profile(for: platform)?.effectiveRoute(for: category)
     }
 
 
-    func checkAccounts() {
-        guard !isSnapshot, !isCheckingAccounts else { return }
-        isCheckingAccounts = true
-        accounts = nil
-        accountError = nil
-        Task {
-            defer { isCheckingAccounts = false }
-            do { accounts = try await StandMixerAccountChecker.check(service: service) }
-            catch { accountError = error.localizedDescription }
+    func previousEscalation(_ category: WorkCategory, in platform: AgentPlatform) -> [AgentAssignment]? {
+        if isEditing { return editBaselineRoute(category, in: platform)?.stuckEscalation }
+        return appliedRoute(category, in: platform)?.stuckEscalation
+    }
+    func hasEscalationChanges(_ category: WorkCategory, in platform: AgentPlatform) -> Bool {
+        guard let previous = previousEscalation(category, in: platform) else { return false }
+        return !Self.sameAssignments(previous, route(category, in: platform).stuckEscalation)
+    }
+    private static func sameAssignments(_ lhs: [AgentAssignment], _ rhs: [AgentAssignment]) -> Bool {
+        lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { pair in
+            pair.0.modelID == pair.1.modelID && pair.0.modelPlatform == pair.1.modelPlatform && pair.0.effort.semanticallyMatches(pair.1.effort)
         }
+    }
+
+    func inheritanceChanges(_ category: WorkCategory, in platform: AgentPlatform) -> [String] {
+        guard category.parent != nil, isEditing,
+              let baseline = editSnapshot?.configuration.profile(for: platform)?.route(for: category) else { return [] }
+        let current = storedRoute(category, in: platform)
+        let fields: [(String, Bool, Bool)] = [
+            ("Model", baseline.inheritsModel, current.inheritsModel),
+            ("Effort", baseline.inheritsEffort, current.inheritsEffort),
+            ("Team", baseline.inheritsTeam, current.inheritsTeam)
+        ]
+        return fields.compactMap { name, before, after in
+            before == after ? nil : name + (after ? ": use parent" : ": custom")
+        }
+    }
+
+    // Authentication is optional and starts only from the explicit connection dialog.
+    func openClaudeConnection() {
+        guard !isTerminating, !showsClaudeConnection else { return }
+        cancelClaudeConnection()
+        rearmAutomaticClaudeConnection()
+        claudeConnectionWasAutomatic = false
+        presentClaudeConnection()
+        checkClaudeConnection()
+    }
+
+    func checkClaudeConnection() { runClaudeConnection(connect: false) }
+
+    func connectClaude() {
+        guard claudeConnection?.state == .signInRequired else { return }
+        runClaudeConnection(connect: true)
+    }
+
+    func dismissClaudeConnection(presentationID: UUID) {
+        guard activeClaudeConnectionPresentationID == presentationID else { return }
+        let resume = claudePreviewConfiguration == configuration
+        if claudeConnection?.state != .connected { claudePromptSuppressed = true }
+        cancelClaudeConnection()
+        if resume && !isTerminating { preparePreview(skipClaudeCheck: true) }
+    }
+
+    private func presentClaudeConnection() {
+        let presentation = ClaudeConnectionPresentation()
+        activeClaudeConnectionPresentationID = presentation.id
+        claudeConnectionPresentation = presentation
+    }
+
+    func cancelClaudeConnection() {
+        activeClaudeConnectionPresentationID = nil
+        claudePreviewConfiguration = nil
+        checkingClaudeQuietly = false
+        claudeConnectionGeneration += 1
+        claudeConnectionTask?.cancel()
+        claudeConnectionTask = nil
+        claudeConnectionActivity = nil
+        claudeConnection = nil
+        claudeConnectionError = nil
+        claudeConnectionPresentation = nil
+        claudeConnectionWasAutomatic = false
+    }
+
+    var hasPendingClaudeConnectionCleanup: Bool { !pendingClaudeConnectionTasks.isEmpty }
+
+    func beginTermination() {
+        isTerminating = true
+        cancelClaudeConnection()
+        for task in pendingClaudeConnectionTasks.values { task.cancel() }
+    }
+
+    func waitForClaudeConnectionCleanup() async {
+        // Dismissing the dialog cancels immediately but retains ownership until the
+        // core has killed and reaped its process group, including resistant children.
+        let pending = Array(pendingClaudeConnectionTasks.values)
+        for task in pending { await task.value }
+    }
+
+    @discardableResult
+    private func offerClaudeConnection(beforePreview: Bool = false) -> Bool {
+        guard !isSnapshot, !isTerminating, !claudePromptSuppressed,
+              confirmedClaudeConnectionIntent != claudeConnectionIntent,
+              requiresClaudeConnection else { return false }
+        if claudeConnectionTask != nil {
+            if checkingClaudeQuietly && beforePreview { claudePreviewConfiguration = configuration }
+            return checkingClaudeQuietly || showsClaudeConnection
+        }
+        guard !showsClaudeConnection, preview == nil, uninstallPreview == nil else { return false }
+        if beforePreview { claudePreviewConfiguration = configuration }
+        runClaudeConnection(connect: false, quietly: true)
+        return true
+    }
+
+    private var requiresClaudeConnection: Bool {
+        guard configuration.enabledPlatforms?.contains(.codex) != false,
+              configuration.enabledPlatforms?.contains(.claude) != false,
+              !hasDetectedConnections || installedPlatforms.contains(.codex) else { return false }
+        return openingRequiresClaude || !ClaudeConnectionTrigger.usage(in: configuration, catalog: availableModels).isEmpty
+    }
+
+    private func rearmAutomaticClaudeConnection() {
+        claudeConnectionIntent += 1
+        claudePromptSuppressed = false
+        if checkingClaudeQuietly { cancelClaudeConnection() }
+    }
+
+    private func runClaudeConnection(connect: Bool, quietly: Bool = false) {
+        guard !isTerminating, (showsClaudeConnection || quietly), claudeConnectionTask == nil else { return }
+        if quietly { activeClaudeConnectionPresentationID = nil }
+        claudeConnectionGeneration += 1
+        let generation = claudeConnectionGeneration
+        let intent = claudeConnectionIntent
+        checkingClaudeQuietly = quietly
+        claudeConnectionActivity = quietly ? nil : connect ? .connecting : .checking
+        claudeConnection = nil
+        claudeConnectionError = nil
+        let task = Task { [weak self, claudeConnectionService] in
+            defer { self?.pendingClaudeConnectionTasks.removeValue(forKey: generation) }
+            do {
+                let report = try await (connect ? claudeConnectionService.connect() : claudeConnectionService.check())
+                guard let self, !Task.isCancelled, self.claudeConnectionGeneration == generation else { return }
+                self.claudeConnection = report
+                if report.state == .connected {
+                    self.confirmedClaudeConnectionIntent = intent
+                    self.claudePromptSuppressed = false
+                }
+                if quietly && report.state != .connected && self.requiresClaudeConnection && !self.claudePromptSuppressed {
+                    self.claudeConnectionWasAutomatic = true
+                    self.presentClaudeConnection()
+                }
+            } catch {
+                guard let self, !Task.isCancelled, self.claudeConnectionGeneration == generation else { return }
+                self.claudeConnectionError = error.localizedDescription
+                if quietly && self.requiresClaudeConnection && !self.claudePromptSuppressed {
+                    self.claudeConnectionWasAutomatic = true
+                    self.presentClaudeConnection()
+                }
+            }
+            guard let self, self.claudeConnectionGeneration == generation else { return }
+            self.checkingClaudeQuietly = false
+            self.claudeConnectionActivity = nil
+            self.claudeConnectionTask = nil
+            if quietly && !self.showsClaudeConnection {
+                let resume = self.claudePreviewConfiguration == self.configuration
+                self.claudePreviewConfiguration = nil
+                if resume { self.preparePreview(skipClaudeCheck: true) }
+            }
+        }
+        claudeConnectionTask = task
+        pendingClaudeConnectionTasks[generation] = task
     }
 
     func refreshConnections() async {
@@ -226,6 +402,14 @@ final class AppStore: ObservableObject {
         }
         if isSnapshot { configureSnapshot() }
         Self.didFinishDiscovery = true
+        if needsOpeningClaudeCheck {
+            needsOpeningClaudeCheck = false
+            if usesOpeningClaudeRequirement {
+                openingRequiresClaude = ClaudeConnectionTrigger.requiredOnOpen(configuration: configuration,
+                    savedConfiguration: savedOpeningConfiguration, installation: installationStatus, catalog: availableModels)
+            }
+            offerClaudeConnection()
+        }
         if isSnapshot && ProcessInfo.processInfo.arguments.contains("--preview") { preparePreview() }
         if isSnapshot && ProcessInfo.processInfo.arguments.contains("--uninstall") { prepareUninstall() }
     }
@@ -354,7 +538,7 @@ final class AppStore: ObservableObject {
             next.customModels.removeAll { $0.id == model.id }
             next.customModels.append(model)
         }
-        if persist(next) {
+        if persist(next, forceClaudeCheck: true) {
             preferredPresetKey = key
             objectWillChange.send()
         }
@@ -381,20 +565,41 @@ final class AppStore: ObservableObject {
         } catch { errorMessage = error.localizedDescription }
     }
 
-    func updateRoute(_ category: WorkCategory, _ update: (inout Route) -> Void) {
+    func updateRoute(_ category: WorkCategory, forceClaudeCheck: Bool = false, _ update: (inout Route) -> Void) {
         var next = configuration
         guard let profileIndex = next.profiles.firstIndex(where: { $0.platform == selectedPlatform }),
               let routeIndex = next.profiles[profileIndex].routes.firstIndex(where: { $0.category == category }) else { return }
-        update(&next.profiles[profileIndex].routes[routeIndex])
-        persist(next)
+        let effective = route(category)
+        var editable = next.profiles[profileIndex].routes[routeIndex]
+        // A newly customized field starts from what the person can currently see.
+        if editable.inheritsModel { editable.modelID = effective.modelID }
+        if editable.inheritsEffort { editable.effort = effective.effort }
+        if editable.inheritsTeam {
+            editable.additionalAgents = effective.additionalAgents
+            editable.teamMode = effective.teamMode
+            editable.resultMode = effective.resultMode
+            editable.judgeModelID = effective.judgeModelID
+        }
+        let before = editable
+        update(&editable)
+        if editable.modelID != before.modelID { editable.inheritsModel = false }
+        if editable.effort != before.effort { editable.inheritsEffort = false }
+        if editable.additionalAgents != before.additionalAgents || editable.teamMode != before.teamMode
+            || editable.resultMode != before.resultMode || editable.judgeModelID != before.judgeModelID {
+            editable.inheritsTeam = false
+        }
+        next.profiles[profileIndex].routes[routeIndex] = editable
+        persist(next, forceClaudeCheck: forceClaudeCheck)
     }
 
     func setModel(_ id: String, for category: WorkCategory, agentIndex: Int = 0) {
-        updateRoute(category) { route in
+        updateRoute(category, forceClaudeCheck: selectedPlatform == .codex && model(id)?.platform == .claude) { route in
             if agentIndex == 0 {
+                route.inheritsModel = false
                 route.modelID = id
-                route.effort = route.isAutoController ? .auto : normalized(route.effort, for: id)
+                if !route.inheritsEffort { route.effort = route.isAutoController ? .auto : normalized(route.effort, for: id) }
             } else if route.additionalAgents.indices.contains(agentIndex - 1) {
+                route.inheritsTeam = false
                 route.additionalAgents[agentIndex - 1].modelID = id
                 route.additionalAgents[agentIndex - 1].modelPlatform = model(id)?.platform
                 route.additionalAgents[agentIndex - 1].effort = normalized(route.additionalAgents[agentIndex - 1].effort, for: id)
@@ -408,8 +613,8 @@ final class AppStore: ObservableObject {
             return agentIndex == 0 ? route.effort : route.additionalAgents.indices.contains(agentIndex - 1) ? route.additionalAgents[agentIndex - 1].effort : .auto
         }, set: { value in
             self.updateRoute(category) {
-                if agentIndex == 0 { $0.effort = $0.isAutoController ? .auto : value }
-                else if $0.additionalAgents.indices.contains(agentIndex - 1) { $0.additionalAgents[agentIndex - 1].effort = value }
+                if agentIndex == 0 { $0.inheritsEffort = false; $0.effort = $0.isAutoController ? .auto : value }
+                else if $0.additionalAgents.indices.contains(agentIndex - 1) { $0.inheritsTeam = false; $0.additionalAgents[agentIndex - 1].effort = value }
             }
         })
     }
@@ -442,14 +647,22 @@ final class AppStore: ObservableObject {
         persist(next)
     }
 
-    func preparePreview() {
+    static func needsClaudeCheckBeforePreview(configuration: StandMixerConfiguration,
+                                              installation: InstallationStatus?, catalog: [ModelSpec]) -> Bool {
+        guard !ClaudeConnectionTrigger.usage(in: configuration, catalog: catalog).isEmpty else { return false }
+        guard let installation, installation.installedPlatforms.contains(.codex),
+              let baseline = installation.appliedConfiguration?.profile(for: .codex) else { return true }
+        return !sameProfile(configuration.profile(for: .codex), baseline)
+    }
+
+    func preparePreview(skipClaudeCheck: Bool = false) {
         guard !isEditing else { showNotice("Save or cancel edits before reviewing changes.", warning: true); return }
         guard !isPreparingPreview, !isPreparingUninstall, !isUninstalling, uninstallPreview == nil else { return }
         let platforms = enabledPlatforms
         guard !platforms.isEmpty else { showNotice("Enable an installed tool first.", warning: true); Self.didFinishSnapshotPreview = true; return }
         for profile in configuration.profiles where platforms.contains(profile.platform) {
-            for route in profile.routes {
-                let ids = [route.modelID] + route.additionalAgents.map(\.modelID) + (route.resultMode == .ai ? [route.judgeModelID].compactMap { $0 } : [])
+            for route in profile.effectiveRoutes {
+                let ids = [route.modelID] + route.additionalAgents.map(\.modelID) + route.stuckEscalation.map(\.modelID) + (route.resultMode == .ai ? [route.judgeModelID].compactMap { $0 } : [])
                 if let unavailable = ids.compactMap({ model($0)?.platform }).first(where: { !platforms.contains($0) }) {
                     errorMessage = "\(profile.platform.displayName) → \(route.category.title) uses \(unavailable.displayName), which is not enabled. Enable it or change this assignment."
                     Self.didFinishSnapshotPreview = true
@@ -457,6 +670,8 @@ final class AppStore: ObservableObject {
                 }
             }
         }
+        if !skipClaudeCheck && Self.needsClaudeCheckBeforePreview(configuration: configuration,
+            installation: installationStatus, catalog: availableModels) && offerClaudeConnection(beforePreview: true) { return }
         isPreparingPreview = true
         previewGeneration += 1
         let generation = previewGeneration
@@ -539,7 +754,6 @@ final class AppStore: ObservableObject {
         guard !isEditing else { errorMessage = "Save or cancel edits before removing settings."; return }
         guard !isSnapshot, let uninstallPreview, !isApplying, !isUninstalling else { return }
         isUninstalling = true
-        AgentPlatform.allCases.forEach(currentSettings.cancel)
         defer { isUninstalling = false }
         do {
             let result = try service.uninstall(preview: uninstallPreview)
@@ -591,8 +805,13 @@ final class AppStore: ObservableObject {
     }
 
     @discardableResult
-    private func persist(_ next: StandMixerConfiguration, recordHistory: Bool = true) -> Bool {
+    private func persist(_ next: StandMixerConfiguration, recordHistory: Bool = true, forceClaudeCheck: Bool = false) -> Bool {
         let changed = next != configuration
+        let introducedClaude = ClaudeConnectionTrigger.introducesClaude(before: configuration, after: next,
+            catalog: ModelSpec.catalog(discovered: discoveredModels, custom: next.customModels))
+        let reenabledProvider = AgentPlatform.allCases.contains {
+            configuration.enabledPlatforms?.contains($0) == false && next.enabledPlatforms?.contains($0) != false
+        }
         do {
             try validateDraft(next)
             if !isEditing && !isSnapshot { try writeDraft(next) }
@@ -600,8 +819,20 @@ final class AppStore: ObservableObject {
                 Self.appendHistory(draftSnapshot, to: &undoHistory)
                 redoHistory.removeAll()
             }
-            if changed { invalidateEditingPreview() }
+            if changed {
+                invalidateEditingPreview()
+                usesOpeningClaudeRequirement = false
+                openingRequiresClaude = false
+            }
             configuration = next
+            if !requiresClaudeConnection {
+                confirmedClaudeConnectionIntent = nil
+                if checkingClaudeQuietly || claudeConnectionWasAutomatic { cancelClaudeConnection() }
+            }
+            if introducedClaude || reenabledProvider || forceClaudeCheck {
+                rearmAutomaticClaudeConnection()
+                offerClaudeConnection()
+            }
             saveStatus = isEditing ? (editSnapshot?.configuration == next ? "Editing" : "Unsaved changes") : "Saved"
             errorMessage = nil
             return true
@@ -642,9 +873,14 @@ final class AppStore: ObservableObject {
     private static func sameProfile(_ lhs: RoutingProfile?, _ rhs: RoutingProfile?) -> Bool {
         guard let lhs, let rhs else { return false }
         return WorkCategory.allCases.allSatisfy { category in
-            guard let a = lhs.route(for: category), let b = rhs.route(for: category),
+            guard let storedA = lhs.route(for: category), let storedB = rhs.route(for: category),
+                  storedA.inheritsModel == storedB.inheritsModel,
+                  storedA.inheritsEffort == storedB.inheritsEffort,
+                  storedA.inheritsTeam == storedB.inheritsTeam,
+                  let a = lhs.effectiveRoute(for: category), let b = rhs.effectiveRoute(for: category),
                   a.modelID == b.modelID, a.effort.semanticallyMatches(b.effort),
                   a.additionalAgents.count == b.additionalAgents.count,
+                  Self.sameAssignments(a.stuckEscalation, b.stuckEscalation),
                   zip(a.additionalAgents, b.additionalAgents).allSatisfy({ pair in pair.0.modelID == pair.1.modelID && pair.0.effort.semanticallyMatches(pair.1.effort) }) else { return false }
             return a.additionalAgents.isEmpty || (a.teamMode == b.teamMode && a.resultMode == b.resultMode && (a.resultMode != .ai || a.judgeModelID == b.judgeModelID))
         }

@@ -20,17 +20,31 @@ Terminal installation opens the local web interface. Inside Claude Code or Codex
 
 ## Presets and editing
 
-**Fast** uses lighter models, **Optimized** matches models to tasks, and **High** uses stronger models and larger teams. Optimized gives the lead substantive work and helpers focused reviews or design alternatives. High allows fuller independent passes. After choosing a visual design, implementation and ordinary follow-ups stay with its owner.
+**Fast** keeps strong models at lower effort for ordinary work, **Optimized** matches models and effort to each kind of work, and **High-quality** uses more Fable and two-model teams for substantive work. Presets select workers for warranted tasks without adding mandatory workflow stages.
+
+Six main groups cover Planning & algorithms, Design & UI, General coding, Code review, Research & writing, and Routine tasks. Optional subcategories inherit model, effort, and team settings independently. A fixed child setting stays fixed when its parent changes; **Use parent** restores inheritance. Older saved configurations retain their assignments, including a separate Algorithms override where needed.
+
+Claude Code and Codex stay visible together. Effort bars distinguish fixed levels, ranges, and caller-following settings; their accessible labels and help show the exact policy. Cross-provider assignments say **via Codex** or **via Claude Code**. Model tiers use bottom-up dots and matching name colors. Fully inherited child summaries stay quiet; visible exceptions show complete assignments and aligned team members.
+
+Routing follows the substance of a task. Serious algorithm or invention work remains on the reasoning route even when described as brainstorming or implementation. Quick ideas are bounded nontechnical suggestions. Drafting and editing at lower effort transforms settled content; difficult new conclusions use Deep analysis. Running a known test command is routine, while investigating an unexplained failure uses Debugging / root cause. Reviewing a UI, an algorithm, and code correctness follows the corresponding subject route.
+
+Code review covers ordinary development and pre-release checks. **Release security** selects the fuller cross-provider review when a release or change warrants an exposure assessment. The agent considers actual exposure, including internet-facing staging or test services, rather than relying on a production/staging label. A local edit does not automatically require a full security audit.
+
+Debugging can have an ordered **When stuck** list, separate from its normal team. The controller uses it only after genuine lack of progress, carrying the current changes, failed hypotheses, and test evidence forward. It skips already-exhausted models and uses each remaining target once. This is model-selection guidance, not a retry engine or quota/availability fallback.
 
 **Controller: Auto** keeps your current chat model. Worker effort Auto follows the caller at a supported level. Explicit controller pins change defaults for future sessions. Presets guide useful delegation; they do not add mandatory planning, security reviews, or extra agents to ordinary chat.
 
-**Edit → Save** saves a draft; **Undo** reverses draft edits. **Review & apply** shows the actual file changes before applying them. StandMixer checks for intervening edits and keeps recovery data. Start new sessions to load changed routing instructions. Model entries and routing instructions do not prove account access or actual execution.
+StandMixer selects models, effort, and explicitly configured teams. The host and project own permissions. Quota monitoring, automatic fallback, model-specific access restrictions, and project-specific mandatory reviews belong outside this tool.
+
+In the Codex/web panel, click a model name or effort bar to change it directly. The draft updates immediately and saves automatically; Undo and Redo remain available, and a failed save keeps the local changes with a retry action. The row's more-settings control holds team and escalation options. Claude's native pane and the Mac app use **Edit → Save** for draft changes. **Review & apply** remains separate in every interface and shows the actual file changes before applying them. StandMixer checks for intervening edits and keeps recovery data. Start new sessions to load changed routing instructions. Model entries and routing instructions do not prove account access or actual execution.
 
 ## Accounts and preferences
 
-**Sources → Check CLI accounts** reads exposed login metadata. External workers use their CLI sign-in, which can differ from the desktop app. StandMixer does not copy credentials, switch accounts, or log anyone out. Cross-provider workers launch directly through the installed CLI, without extra launcher or watcher agents.
+**Sources** shows saved local defaults and installed CLI versions. The native Codex panel and Mac app automatically run Claude Code’s public `auth status --json` check when you open settings with Codex-to-Claude routes configured, choose Claude for Codex, or re-enable a provider those routes need. A working connection stays quiet. If the check needs attention, StandMixer opens the connection dialog. **Not now** lets you continue configuring routes. **Connect Claude for Codex** also checks the current status. Choose **Continue with Claude** to start the official `auth login` browser flow. Claude Code owns credentials. StandMixer keeps only the checked executable and profile metadata.
 
-Opening settings and editing presets do not run models. **Read preferences** can ask your agent to interpret a bounded snapshot of settings and recent project instructions. It never applies changes automatically; credentials and conversation bodies are excluded.
+Codex workers resolve their CLI with `standmixer resolve-cli codex`. Claude workers use `standmixer run-claude -- -p …`, which checks the linked native connection in the worker’s directory and replaces itself with the selected CLI. The same profile is used for checking, sign-in, and execution; versioned executables can be rediscovered without switching profiles. No browser login or model retry starts automatically from a worker launch. A signed-in Desktop session alone does not establish independent CLI authentication.
+
+All settings comparisons use deterministic reads of saved global defaults and verified StandMixer installation records. Unknown settings stay unknown. You can open, edit, preview, and apply settings without a successful login, model calls, or conversation-history inspection.
 
 ## Optional Mac app
 
@@ -40,7 +54,7 @@ The app builds locally, is ad-hoc signed, and installs in `~/Applications/StandM
 
 ## Update and remove
 
-Run `/standmixer update` in Claude Code or `$standmixer update` in Codex. Add `--mac` to also rebuild the optional Mac app. In Terminal:
+Run `/standmixer update` in Claude Code or `$standmixer update` in Codex. On the current data layout, add `--mac` to also rebuild the optional Mac app. In Terminal:
 
 ```sh
 "$HOME/Library/Application Support/StandMixer/bin/standmixer" update
@@ -62,7 +76,7 @@ Subsequent updates preserve presets, drafts, backups, and modified or unowned fi
 
 `/standmixer uninstall` or **Sources → Remove StandMixer settings** previews restoration of the original managed settings. The Mac app offers **Settings → Uninstall StandMixer**. Later user edits are preserved. Remove the plugin separately in the host's plugin manager; saved presets, recovery data, source, and the optional app remain.
 
-The [upgrade test plan](docs/upgrade-test.md) covers the 0.1.4 baseline, updating to 0.1.7, and checking a repeated update.
+The [0.2.6 upgrade test plan](docs/upgrade-test.md) covers migration from 0.1.4, a standard update from 0.1.8 or an earlier 0.2.x release, and checking that a repeated update preserves the restore point.
 
 The installer prints the full Terminal command path without changing your shell's PATH. The launcher also accepts `status`, `fast`, `optimized`, `high`, and `uninstall`; routing changes preview first and require `--yes`.
 

@@ -1,4 +1,5 @@
 @testable import StandMixerCore
+import CryptoKit
 import Foundation
 import XCTest
 @testable import StandMixerHelper
@@ -27,8 +28,7 @@ final class EmbeddedUITests: XCTestCase {
         try FileManager.default.createDirectory(at: ui, withIntermediateDirectories: true)
         try "<!doctype html><html><style>body{color:#fff}</style><script>window.fixture=true;</script></html>".write(to: ui.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
         assets = try .init(root: ui)
-        engine = .init(interface: .init(service: service, connections: connections,
-                                       inspectionReader: { _ in throw AgentImportError.failed("Fixture inspection is disabled.") }))
+        engine = .init(interface: .init(service: service, connections: connections))
         router = .init(engine: engine, assets: assets, token: token, port: port)
     }
     override func tearDownWithError() throws { try FileManager.default.removeItem(at: root) }
@@ -48,11 +48,7 @@ final class EmbeddedUITests: XCTestCase {
     }
 
     func testOpenPanelAndStateHaveNoInferenceOrNativeWrites() async throws {
-        actor Counter { var count = 0; func started() { count += 1 } }
-        let counter = Counter()
-        let noInferenceEngine = StandMixerUIEngine(interface: .init(service: service, connections: connections, inspectionReader: { _ in
-            await counter.started(); throw AgentImportError.failed("Unexpected observer")
-        }))
+        let noInferenceEngine = StandMixerUIEngine(interface: .init(service: service, connections: connections))
         let server = StandMixerMCPServer(engine: noInferenceEngine, assets: assets)
         let bytes = Data("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"open_standmixer\",\"arguments\":{}}}".utf8)
         let response = await server.respond(bytes)
@@ -61,14 +57,12 @@ final class EmbeddedUITests: XCTestCase {
         XCTAssertEqual(structured["ok"] as? Bool, true)
         XCTAssertNil(structured["state"])
         XCTAssertLessThan(try XCTUnwrap(response).count, 512)
-        XCTAssertEqual(((result["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["resourceUri"] as? String, StandMixerUIAssets.resourceURI)
+        XCTAssertEqual(((result["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["resourceUri"] as? String, assets.resourceURI)
         // The embedded panel loads full state through its app-only tool instead.
         let stateRequest = Data("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"standmixer_action\",\"arguments\":{\"action\":\"state\"}}}".utf8)
         let stateResponse = await server.respond(stateRequest)
         let stateResult = try XCTUnwrap(try object(XCTUnwrap(stateResponse))["result"] as? [String: Any])
         XCTAssertNotNil((stateResult["structuredContent"] as? [String: Any])?["state"])
-        let starts = await counter.count
-        XCTAssertEqual(starts, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.applicationSupport.path))
     }
@@ -79,11 +73,24 @@ final class EmbeddedUITests: XCTestCase {
         let listed = try await rpc("tools/list")
         let tools = try XCTUnwrap((listed["result"] as? [String: Any])?["tools"] as? [[String: Any]])
         XCTAssertEqual(tools.compactMap { $0["name"] as? String }, ["open_standmixer", "standmixer_action"])
+        let opening = try XCTUnwrap(tools.first { $0["name"] as? String == "open_standmixer" })
+        XCTAssertEqual(((opening["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["resourceUri"] as? String, assets.resourceURI)
         let action = try XCTUnwrap(tools.first { $0["name"] as? String == "standmixer_action" })
         XCTAssertEqual(((action["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["visibility"] as? [String], ["app"])
         XCTAssertEqual((action["inputSchema"] as? [String: Any])?["additionalProperties"] as? Bool, false)
-        let resource = try await rpc("resources/read", params: ["uri": StandMixerUIAssets.resourceURI])
+        let schema = try XCTUnwrap(action["inputSchema"] as? [String: Any])
+        let properties = try XCTUnwrap(schema["properties"] as? [String: Any])
+        let actions = try XCTUnwrap((properties["action"] as? [String: Any])?["enum"] as? [String])
+        XCTAssertFalse(actions.contains("inspect"))
+        XCTAssertFalse(actions.contains("checkAccounts"))
+        XCTAssertTrue(actions.contains("checkClaudeConnection"))
+        XCTAssertTrue(actions.contains("connectClaude"))
+        let listedResources = try await rpc("resources/list")
+        let resources = try XCTUnwrap((listedResources["result"] as? [String: Any])?["resources"] as? [[String: Any]])
+        XCTAssertEqual(resources.compactMap { $0["uri"] as? String }, [assets.resourceURI])
+        let resource = try await rpc("resources/read", params: ["uri": try XCTUnwrap(resources.first?["uri"] as? String)])
         let contents = try XCTUnwrap((resource["result"] as? [String: Any])?["contents"] as? [[String: Any]])
+        XCTAssertEqual(contents.first?["uri"] as? String, assets.resourceURI)
         XCTAssertEqual(contents.first?["mimeType"] as? String, "text/html;profile=mcp-app")
         XCTAssertEqual(contents.first?["text"] as? String, String(decoding: assets.html, as: UTF8.self))
         let unknown = try await rpc("resources/read", params: ["uri": "file:///etc/passwd"])
@@ -91,6 +98,65 @@ final class EmbeddedUITests: XCTestCase {
         let server = StandMixerMCPServer(engine: engine, assets: assets)
         let notification = await server.respond(Data("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}".utf8))
         XCTAssertNil(notification)
+    }
+
+    func testResourceIdentityUsesExactHTMLBytesAndIsStableAcrossLoads() throws {
+        let ui = root.appendingPathComponent("ui")
+        let original = try XCTUnwrap(assets)
+        let duplicate = try StandMixerUIAssets(root: ui)
+        let digest = SHA256.hash(data: original.html).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(original.resourceURI, "ui://standmixer/settings-\(digest).html")
+        XCTAssertEqual(duplicate.resourceURI, original.resourceURI)
+        try (original.html + Data("\n".utf8)).write(to: ui.appendingPathComponent("index.html"))
+        let changed = try StandMixerUIAssets(root: ui)
+        XCTAssertNotEqual(changed.resourceURI, original.resourceURI)
+        XCTAssertEqual(changed.contentSecurityPolicy, original.contentSecurityPolicy)
+    }
+
+    func testRunningServerKeepsOneSnapshotAndRejectsOtherResourceIdentities() async throws {
+        let server = StandMixerMCPServer(engine: engine, assets: assets)
+        let original = try XCTUnwrap(assets)
+        let ui = root.appendingPathComponent("ui")
+        try "<html><script>window.replaced=true;</script></html>".write(to: ui.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        let changed = try StandMixerUIAssets(root: ui)
+        XCTAssertNotEqual(changed.resourceURI, original.resourceURI)
+        XCTAssertNotEqual(changed.contentSecurityPolicy, original.contentSecurityPolicy)
+        func response(_ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
+            let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": method, "params": params])
+            let result = await server.respond(data)
+            return try object(XCTUnwrap(result))
+        }
+        let listed = try await response("tools/list")
+        let tools = try XCTUnwrap((listed["result"] as? [String: Any])?["tools"] as? [[String: Any]])
+        XCTAssertEqual(((tools.first?["_meta"] as? [String: Any])?["ui"] as? [String: Any])?["resourceUri"] as? String, original.resourceURI)
+        let read = try await response("resources/read", ["uri": original.resourceURI])
+        let contents = try XCTUnwrap((read["result"] as? [String: Any])?["contents"] as? [[String: Any]])
+        XCTAssertEqual(contents.first?["text"] as? String, String(decoding: original.html, as: UTF8.self))
+        XCTAssertEqual(server.assets.contentSecurityPolicy, original.contentSecurityPolicy)
+        let page = await router.respond(.init(method: "GET", path: "/", headers: ["host": "127.0.0.1:\(port)"], body: Data()))
+        XCTAssertEqual(page.body, original.html)
+        XCTAssertEqual(page.headers["Content-Security-Policy"], original.contentSecurityPolicy)
+        for uri in [changed.resourceURI, "ui://standmixer/settings.html", "ui://standmixer/settings-" + String(repeating: "0", count: 64) + ".html", "file:///etc/passwd", "ui://standmixer/../../etc/passwd", original.resourceURI + "?path=/etc/passwd", ui.appendingPathComponent("index.html").absoluteString] {
+            let rejected = try await response("resources/read", ["uri": uri])
+            XCTAssertNil(rejected["result"])
+            XCTAssertEqual((rejected["error"] as? [String: Any])?["code"] as? Int, -32602)
+        }
+        let refreshed = StandMixerMCPServer(engine: engine, assets: changed)
+        let request = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": ["uri": original.resourceURI]])
+        let rejected = await refreshed.respond(request)
+        XCTAssertEqual((try object(XCTUnwrap(rejected))["error"] as? [String: Any])?["code"] as? Int, -32602)
+    }
+
+    func testMCPLegacyAccountAndInspectionActionsAreRetired() async throws {
+        for action in ["inspect", "checkAccounts"] {
+            let response = try await rpc("tools/call", params: ["name": "standmixer_action", "arguments": ["action": action]])
+            let result = try XCTUnwrap(response["result"] as? [String: Any])
+            XCTAssertEqual(result["isError"] as? Bool, true)
+            let structured = try XCTUnwrap(result["structuredContent"] as? [String: Any])
+            XCTAssertEqual((structured["error"] as? [String: Any])?["code"] as? String, "retiredAction")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: service.applicationSupport.path))
     }
 
     func testRemovedMCPAliasesAreRejectedWithoutOpeningOrReadingState() async throws {
@@ -161,13 +227,14 @@ final class EmbeddedUITests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.receiptURL.path))
     }
 
-    func testHTTPDraftAndFixtureInspectionDoNotChangeRouting() async throws {
+    func testHTTPDraftAndRetiredInspectionDoNotChangeRouting() async throws {
         let saved = await router.respond(try request(.init(action: .saveDraft, configuration: .defaults, platforms: [.codex, .claude])))
         XCTAssertEqual(try object(saved.body)["ok"] as? Bool, true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: service.applicationSupport.appendingPathComponent("configuration.json").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.path))
         let inspected = await router.respond(try request(.init(action: .inspect, platforms: [.codex])))
         XCTAssertEqual(inspected.status, 200)
+        XCTAssertEqual(try errorCode(inspected), "retiredAction")
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.receiptURL.path))
     }

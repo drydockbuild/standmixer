@@ -250,4 +250,85 @@ final class DiscoveryTests: XCTestCase {
         }
         XCTAssertEqual(missingProbes, 1)
     }
+
+    func testLaunchResolutionRefreshesAfterApplyUpdatesActiveCLIAndRemoval() async throws {
+        let first = try executable(".local/share/claude/versions/2.1.309", version: "2.1.309")
+        var active: [URL] = []
+        var fixture = discovery()
+        fixture.activeExecutables = { active }
+        let service = IntegrationService(discovery: fixture, applicationSupport: root.appendingPathComponent("support"))
+        // Apply uses the same Foundation-normalized home as the installation fixtures;
+        // launch discovery deliberately returns macOS's canonical /private executable path.
+        let installer = IntegrationService(home: home.resolvingSymlinksInPath(), applicationSupport: service.applicationSupport,
+                                           environment: [:], metadataOnlyDiscovery: true)
+        let preview = try installer.preview(configuration: .defaults)
+        let guides = preview.changes.filter { $0.path.hasSuffix("external-workers.md") }
+        XCTAssertEqual(guides.count, 2)
+        XCTAssertFalse(guides.contains { $0.after.contains(first.path) })
+        _ = try installer.apply(preview: preview)
+        let originalGuide = try String(contentsOf: service.home.appendingPathComponent(".agents/skills/standmixer/references/external-workers.md"), encoding: .utf8)
+        func resolve() async -> StandMixerCommandResponse {
+            await StandMixerCommandInterface.run(arguments: ["resolve-cli", "claude"], service: service)
+        }
+        let initial = await resolve()
+        XCTAssertEqual(initial.text, first.path)
+        XCTAssertEqual(initial.exitCode, 0)
+        let newer = try executable(".local/share/claude/versions/2.1.310", version: "2.1.310")
+        let updated = await resolve()
+        XCTAssertEqual(updated.text, newer.path)
+        active = [first]
+        let running = await resolve()
+        XCTAssertEqual(running.text, first.path)
+        try FileManager.default.removeItem(at: first)
+        let removed = await resolve()
+        XCTAssertEqual(removed.text, newer.path)
+        try FileManager.default.removeItem(at: newer)
+        let missing = await resolve()
+        XCTAssertEqual(missing.exitCode, 1)
+        XCTAssertTrue(missing.text.contains("No working Claude Code CLI"))
+        XCTAssertEqual(try String(contentsOf: service.home.appendingPathComponent(".agents/skills/standmixer/references/external-workers.md"), encoding: .utf8), originalGuide)
+    }
+
+    func testBrokenCLINeverResolvesAndFixtureModeNeverLaunches() async throws {
+        let broken = try executable("custom/bin/claude", version: "invalid")
+        let fixture = discovery(active: [broken])
+        XCTAssertNil(fixture.select(.claude))
+        let service = IntegrationService(discovery: fixture)
+        let connections = await service.detect()
+        XCTAssertFalse(try XCTUnwrap(connections.first { $0.platform == .claude }).isInstalled)
+        let result = await StandMixerCommandInterface.run(arguments: ["resolve-cli", "claude"], service: service)
+        XCTAssertEqual(result.exitCode, 1)
+        let marker = root.appendingPathComponent("unexpected-launch")
+        try "#!/bin/sh\n/usr/bin/touch '\(marker.path)'\nprintf '2.1.309 (Claude Code)\\n'\n".write(to: broken, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: broken.path)
+        let metadata = IntegrationService(discovery: fixture, metadataOnlyDiscovery: true)
+        _ = await metadata.detect()
+        let disabled = await StandMixerCommandInterface.run(arguments: ["resolve-cli", "claude"], service: metadata)
+        XCTAssertEqual(disabled.exitCode, 1)
+        _ = try service.preview(configuration: .defaults)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path), "Preview and fixture discovery must not launch even --version")
+    }
+
+    func testAccountCheckUsesVerifiedSelectionAndPreservesCustomConfigurationRoots() async throws {
+        let broken = try executable("custom/bin/claude", version: "invalid")
+        let healthy = try executable(".local/share/claude/versions/2.1.310", version: "2.1.310")
+        var fixture = discovery(active: [broken])
+        fixture.environment["CLAUDE_CONFIG_DIR"] = root.appendingPathComponent("custom claude").path
+        fixture.environment["CODEX_HOME"] = root.appendingPathComponent("custom codex").path
+        let service = IntegrationService(discovery: fixture)
+        let connections = await service.detect()
+        XCTAssertEqual(connections.first { $0.platform == .claude }?.path, healthy.path)
+        XCTAssertEqual(connections.first { $0.platform == .claude }?.version, "2.1.310")
+        let report = try await StandMixerAccountChecker.check(service: service, executables: nil, runner: { platform, executable, arguments, environment, _, _ in
+            XCTAssertEqual(platform, .claude)
+            XCTAssertEqual(executable, healthy)
+            XCTAssertEqual(arguments, ["auth", "status", "--json"])
+            XCTAssertEqual(environment["CLAUDE_CONFIG_DIR"], service.claudeHome.path)
+            XCTAssertEqual(environment["CODEX_HOME"], service.codexHome.path)
+            return .init(output: Data(#"{"loggedIn":false}"#.utf8), diagnostics: Data(), waitStatus: 1 << 8,
+                         outputOverflow: false, diagnosticsOverflow: false)
+        })
+        XCTAssertEqual(report.providers.first { $0.platform == .claude }?.cliPath, healthy.path)
+        XCTAssertEqual(report.providers.first { $0.platform == .claude }?.status, .signedOut)
+    }
 }

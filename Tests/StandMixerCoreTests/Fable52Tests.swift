@@ -17,6 +17,9 @@ final class Fable52Tests: XCTestCase {
         for i in config.profiles.indices {
             let j = config.profiles[i].routes.firstIndex { $0.category == .algorithms }!
             config.profiles[i].routes[j].modelID = spec.id
+            config.profiles[i].routes[j].inheritsModel = false
+            config.profiles[i].routes[j].effort = .auto
+            config.profiles[i].routes[j].inheritsEffort = false
         }
         let preview = try service.preview(configuration: config)
         let native = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("/agents/standmixer-claude-fable-5-2-auto.md") })

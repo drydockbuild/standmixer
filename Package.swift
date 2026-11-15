@@ -14,6 +14,7 @@ let package = Package(
         .executableTarget(name: "StandMixerApp", dependencies: ["StandMixerCore"]),
         .executableTarget(name: "StandMixerHelper", dependencies: ["StandMixerCore"]),
         .testTarget(name: "StandMixerCoreTests", dependencies: ["StandMixerCore"]),
+        .testTarget(name: "StandMixerAppTests", dependencies: ["StandMixerApp", "StandMixerCore"]),
         .testTarget(name: "StandMixerHelperTests", dependencies: ["StandMixerHelper", "StandMixerCore"]),
     ],
     swiftLanguageModes: [.v5]

@@ -36,15 +36,12 @@ final class CallerEffortTests: XCTestCase {
         return try XCTUnwrap(source.components(separatedBy: "---\n").last).replacingOccurrences(of: "<!-- \(ConfigEdits.ownership) -->\n\n", with: "")
     }
 
-    func testAllPresetCoordinatorsAndWorkersFollowCallerUntilExplicitlyOverridden() throws {
+    func testAutoControllerAndExplicitWorkerAutoKeepFollowingCaller() throws {
         for available in [Set<AgentPlatform>([.codex]), [.claude], [.codex, .claude]] {
             for preset in StandMixerPreset.allCases {
                 let configuration = StandMixerConfiguration.preset(preset, availablePlatforms: available)
                 for profile in configuration.profiles {
-                    for route in profile.routes {
-                        XCTAssertEqual(route.effort, .auto, "\(preset) \(profile.platform) \(route.category)")
-                        XCTAssertTrue(route.additionalAgents.allSatisfy { $0.effort == .auto })
-                    }
+                    XCTAssertEqual(profile.route(for: .coordinator)?.effort, .auto)
                 }
             }
         }
@@ -68,15 +65,18 @@ final class CallerEffortTests: XCTestCase {
     }
 
     func testNativeAutoOmitsFixedEffortAndPreservesCallerLaunchGuidance() throws {
-        let preview = try service.preview(configuration: .defaults)
+        var configuration = StandMixerConfiguration.defaults
+        edit(&configuration, platform: .codex, category: .planning) { $0.effort = .auto }
+        edit(&configuration, platform: .claude, category: .planning) { $0.effort = .auto }
+        let preview = try service.preview(configuration: configuration)
         let codex = try file(".codex/agents/standmixer-gpt-6-astra-auto.toml", in: preview)
         XCTAssertTrue(codex.contains("model = \"gpt-6-astra\""))
         XCTAssertFalse(codex.contains("model_reasoning_effort ="))
         XCTAssertEqual(try selectorDescription(codex), "Model selector: Astra 6; effort: follow caller. Supported launch levels: low, medium, high, xhigh, max, ultra.")
-        let claude = try file(".claude/agents/standmixer-claude-fable-5-1-auto.md", in: preview)
-        XCTAssertTrue(claude.contains("model: claude-fable-5-1\n---"))
+        let claude = try file(".claude/agents/standmixer-claude-fable-5-2-auto.md", in: preview)
+        XCTAssertTrue(claude.contains("model: claude-fable-5-2\n---"))
         XCTAssertFalse(claude.contains("\neffort:"))
-        XCTAssertEqual(try selectorDescription(claude), "Model selector: Fable 5.1; effort: follow caller. Supported launch levels: low, medium, high, xhigh, max.")
+        XCTAssertEqual(try selectorDescription(claude), "Model selector: Fable 5.2; effort: follow caller. Supported launch levels: low, medium, high, xhigh, max.")
         for artifact in [codex, claude] {
             let child = try childInstructions(artifact)
             XCTAssertTrue(child.contains("actual scope, permissions, and applicable project instructions"))
@@ -95,7 +95,10 @@ final class CallerEffortTests: XCTestCase {
     }
 
     func testBothCrossCLIDirectionsMapCallerInsteadOfDriverOrCatalogDefault() throws {
-        let preview = try service.preview(configuration: .defaults)
+        var configuration = StandMixerConfiguration.defaults
+        edit(&configuration, platform: .codex, category: .securityReview) { $0.additionalAgents[0].effort = .auto }
+        edit(&configuration, platform: .claude, category: .routineCoding) { $0.effort = .auto }
+        let preview = try service.preview(configuration: configuration)
         let claudeTarget = try file(".agents/skills/standmixer/references/external-workers.md", in: preview)
         XCTAssertFalse(claudeTarget.contains("model = \"gpt-6-luna\""))
         XCTAssertTrue(claudeTarget.contains("--effort '<mapped-caller-effort>'"))
@@ -117,9 +120,10 @@ final class CallerEffortTests: XCTestCase {
         var configuration = StandMixerConfiguration.defaults
         configuration.customModels = [.init(id: "custom-caller", label: "Custom Caller", platform: .codex,
                                              supportedEfforts: ["low", "high"], defaultEffort: "high")]
-        edit(&configuration, platform: .codex, category: .planning) { $0.modelID = "custom-caller" }
+        edit(&configuration, platform: .codex, category: .planning) { $0.modelID = "custom-caller"; $0.effort = .auto }
+        edit(&configuration, platform: .codex, category: .quickIdeas) { $0.effort = .fixed("low") }
         edit(&configuration, platform: .codex, category: .ui) { $0.effort = .fixed("xhigh") }
-        edit(&configuration, platform: .claude, category: .implementation) { $0.effort = .fixed("ultra") }
+        edit(&configuration, platform: .claude, category: .routineCoding) { $0.effort = .fixed("ultra") }
         edit(&configuration, platform: .claude, category: .ui) { $0.modelID = "claude-fable-5-1"; $0.effort = .range(minimum: "medium", maximum: "max") }
         let preview = try service.preview(configuration: configuration)
         let custom = try XCTUnwrap(preview.changes.first { $0.path.contains("standmixer-custom-caller-auto-") }).after

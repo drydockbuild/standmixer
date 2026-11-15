@@ -20,7 +20,7 @@ final class StandMixerMCPServer: @unchecked Sendable {
             return encodeError(id: NSNull(), code: -32600, message: "Invalid JSON-RPC request.")
         }
         // Notifications never receive a response. Cancellation is handled by the
-        // stdio runner so the observer task owns and stops its existing process group.
+        // stdio runner for any outstanding settings operation.
         guard request.keys.contains("id") else { return nil }
         let parameters = request["params"] as? [String: Any] ?? [:]
         let result: [String: Any]
@@ -29,17 +29,17 @@ final class StandMixerMCPServer: @unchecked Sendable {
             result = ["protocolVersion": Self.protocolVersion,
                       "capabilities": ["tools": ["listChanged": false], "resources": ["subscribe": false, "listChanged": false]],
                       "serverInfo": ["name": "standmixer", "version": StandMixerRelease.version, "icons": Self.icons],
-                      "instructions": "Open StandMixer to review routing. Apply requires a stored reviewed preview ID. Account status and optional local Mac app installation run only from explicit panel actions."]
+                      "instructions": "Open StandMixer to review routing. Apply requires a stored reviewed preview ID. StandMixer manages configuration without inference or account checks. Optional local Mac app installation runs only from an explicit panel action."]
         case "ping": result = [:]
-        case "tools/list": result = ["tools": Self.tools]
+        case "tools/list": result = ["tools": tools]
         case "resources/list":
-            result = ["resources": [["uri": StandMixerUIAssets.resourceURI, "name": "StandMixer", "description": "StandMixer routing settings inside Codex", "mimeType": StandMixerUIAssets.mimeType]]]
+            result = ["resources": [["uri": assets.resourceURI, "name": "StandMixer", "description": "StandMixer routing settings inside Codex", "mimeType": StandMixerUIAssets.mimeType]]]
         case "resources/templates/list": result = ["resourceTemplates": []]
         case "resources/read":
-            guard parameters["uri"] as? String == StandMixerUIAssets.resourceURI else {
+            guard parameters["uri"] as? String == assets.resourceURI else {
                 return encodeError(id: id, code: -32602, message: "Unknown StandMixer UI resource.")
             }
-            result = ["contents": [["uri": StandMixerUIAssets.resourceURI, "mimeType": StandMixerUIAssets.mimeType,
+            result = ["contents": [["uri": assets.resourceURI, "mimeType": StandMixerUIAssets.mimeType,
                                      "text": String(decoding: assets.html, as: UTF8.self),
                                      "_meta": ["ui": ["csp": ["connectDomains": [], "resourceDomains": []], "prefersBorder": true]]]]]
         case "tools/call":
@@ -63,7 +63,7 @@ final class StandMixerMCPServer: @unchecked Sendable {
             let structured = (try? JSONSerialization.jsonObject(with: response)) as? [String: Any] ?? [:]
             var toolResult: [String: Any] = ["content": [["type": "text", "text": String(decoding: response, as: UTF8.self)]],
                                             "structuredContent": structured, "isError": structured["ok"] as? Bool != true]
-            if name == "open_standmixer" { toolResult["_meta"] = ["ui": ["resourceUri": StandMixerUIAssets.resourceURI]] }
+            if name == "open_standmixer" { toolResult["_meta"] = ["ui": ["resourceUri": assets.resourceURI]] }
             result = toolResult
         default: return encodeError(id: id, code: -32601, message: "Method not found.")
         }
@@ -83,22 +83,22 @@ final class StandMixerMCPServer: @unchecked Sendable {
                 "mimeType": "image/svg+xml", "sizes": ["any"], "theme": theme]
     }
 
-    static var tools: [[String: Any]] {
-        let actions = ["state", "inspect", "saveDraft", "savePreset", "deletePreset", "preview", "apply", "previewUninstall", "uninstall", "previewRestore", "restore", "installMac", "openWeb", "openMac", "checkAccounts", "checkUpdates"]
+    var tools: [[String: Any]] {
+        let actions = ["state", "saveDraft", "savePreset", "deletePreset", "preview", "apply", "previewUninstall", "uninstall", "previewRestore", "restore", "installMac", "openWeb", "openMac", "checkUpdates", "checkClaudeConnection", "connectClaude"]
         return [
             ["name": "open_standmixer", "title": "Open StandMixer", "description": "Open StandMixer routing settings inside Codex. Reads saved configuration without starting inference or changing routing.",
              "icons": Self.icons,
              "inputSchema": ["type": "object", "properties": [:], "additionalProperties": false],
              "annotations": ["readOnlyHint": true, "destructiveHint": false, "openWorldHint": false],
-             "_meta": ["ui": ["resourceUri": StandMixerUIAssets.resourceURI, "visibility": ["model", "app"]],
+             "_meta": ["ui": ["resourceUri": assets.resourceURI, "visibility": ["model", "app"]],
                        "openai/ui": ["entrypoints": [["type": "thread"], ["type": "global"]], "preferredModelDisplayMode": "fullscreen"]]],
-            ["name": "standmixer_action", "title": "StandMixer panel action", "description": "Settings, preference inspection, CLI account checks, and optional local app installation for the StandMixer panel. Apply, uninstall, and restore require a server-generated reviewed preview ID; paths and shell commands are never accepted.",
+            ["name": "standmixer_action", "title": "StandMixer panel action", "description": "Routing settings, optional local app installation, and explicit Connect Claude for Codex. Settings never run models or require login. Configured Codex-to-Claude routes may check public CLI sign-in status automatically; opening the official browser login requires an explicit request. Apply, uninstall, and restore require a stored reviewed preview ID; paths and shell commands are never accepted.",
              "inputSchema": ["type": "object", "required": ["action"], "additionalProperties": false,
                              "properties": ["action": ["type": "string", "enum": actions], "configuration": ["type": "object"],
                                             "platforms": ["type": "array", "items": ["type": "string", "enum": ["codex", "claude"]], "uniqueItems": true],
                                             "previewID": ["type": "string", "format": "uuid"], "presetID": ["type": "string", "format": "uuid"],
                                             "name": ["type": "string"], "refresh": ["type": "boolean"]]],
-             "annotations": ["readOnlyHint": false, "destructiveHint": true, "openWorldHint": false],
+             "annotations": ["readOnlyHint": false, "destructiveHint": true, "openWorldHint": true],
              "_meta": ["ui": ["visibility": ["app"]]]],
         ]
     }
@@ -107,9 +107,14 @@ final class StandMixerMCPServer: @unchecked Sendable {
 /// Newline-delimited stdio; stdout contains protocol messages exclusively.
 final class StandMixerMCPStdio: @unchecked Sendable {
     let server: StandMixerMCPServer
+    private let input: FileHandle
+    private let output: FileHandle
     private let lock = NSLock()
     private var operations: [String: Task<Void, Never>] = [:]
-    init(server: StandMixerMCPServer) { self.server = server }
+    private var connectionOperations = Set<String>()
+    init(server: StandMixerMCPServer, input: FileHandle = .standardInput, output: FileHandle = .standardOutput) {
+        self.server = server; self.input = input; self.output = output
+    }
 
     func run() async throws {
         var pending = Data()
@@ -118,7 +123,7 @@ final class StandMixerMCPStdio: @unchecked Sendable {
         while true {
             // MCP clients keep stdin open between requests. Read available
             // bytes instead of waiting for FileHandle to fill a pipe read.
-            let count = buffer.withUnsafeMutableBytes { Darwin.read(STDIN_FILENO, $0.baseAddress, $0.count) }
+            let count = buffer.withUnsafeMutableBytes { Darwin.read(input.fileDescriptor, $0.baseAddress, $0.count) }
             if count < 0 {
                 let code = errno
                 if code == EINTR { continue }
@@ -137,6 +142,9 @@ final class StandMixerMCPStdio: @unchecked Sendable {
             }
         }
         if !pending.isEmpty && !oversized { submit(pending) }
+        // Closing an MCP connection must not leave a browser-login process behind.
+        // Ordinary finite settings requests still complete for pipe-based clients.
+        for operation in connectionSnapshot() { operation.cancel() }
         let tasks = snapshot()
         for operation in tasks { await operation.value }
     }
@@ -150,6 +158,7 @@ final class StandMixerMCPStdio: @unchecked Sendable {
             operation?.cancel(); return
         }
         let key = request?["id"].map(Self.key) ?? UUID().uuidString
+        let action = ((request?["params"] as? [String: Any])?["arguments"] as? [String: Any])?["action"] as? String
         lock.lock()
         // Duplicate live IDs are invalid; never cancel or replace an earlier operation.
         if operations[key] != nil { lock.unlock(); write(Data("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"Duplicate active request ID.\"}}".utf8)); return }
@@ -159,14 +168,17 @@ final class StandMixerMCPStdio: @unchecked Sendable {
             complete(key)
         }
         operations[key] = task
+        if action == "connectClaude" || action == "checkClaudeConnection" { connectionOperations.insert(key) }
         lock.unlock()
     }
-    private func complete(_ key: String) { lock.lock(); operations.removeValue(forKey: key); lock.unlock() }
+    private func complete(_ key: String) { lock.lock(); operations.removeValue(forKey: key); connectionOperations.remove(key); lock.unlock() }
     private func snapshot() -> [Task<Void, Never>] { lock.lock(); defer { lock.unlock() }; return Array(operations.values) }
+    private func connectionSnapshot() -> [Task<Void, Never>] { lock.lock(); defer { lock.unlock() }; return connectionOperations.compactMap { operations[$0] } }
     func cancelAll() { for operation in snapshot() { operation.cancel() } }
+    func cancelAllAndWait() async { let tasks = snapshot(); tasks.forEach { $0.cancel() }; for task in tasks { await task.value } }
     private func write(_ data: Data) {
         lock.lock(); defer { lock.unlock() }
-        try? FileHandle.standardOutput.write(contentsOf: data + Data([10]))
+        try? output.write(contentsOf: data + Data([10]))
     }
     private static func key(_ id: Any) -> String {
         if let value = id as? String { return "string:" + value }

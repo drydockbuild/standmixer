@@ -1,149 +1,70 @@
-import AppKit
 import SwiftUI
 import StandMixerCore
 
 enum CurrentReadState {
-    case idle, running(AgentImportPhase), completed, failed(String), cancelled
-    var isRunning: Bool { if case .running = self { return true }; return false }
-    var label: String {
-        switch self {
-        case .idle: return "Not read yet"
-        case .running(.starting): return "Starting"
-        case .running(.inspecting): return "Reading settings"
-        case .running(.decoding), .running(.completed): return "Reading report"
-        case .completed: return "Read complete"
-        case .failed: return "Couldn’t read settings"
-        case .cancelled: return "Stopped"
-        }
-    }
+    case idle, completed
+    var isRunning: Bool { false }
+    var label: String { self == .completed ? "Saved settings" : "Not recorded" }
 }
 
 struct CurrentSettingsRun {
     var state: CurrentReadState = .idle
     var proposal: AgentImportProposal?
     var receivedAt: Date?
-    var isPreviousReport: Bool {
-        guard proposal != nil else { return false }
-        if case .completed = state { return false }
-        return true
-    }
+    var isPreviousReport: Bool { false }
 }
 
+/// Deterministic comparisons from saved settings and verified installation records.
+/// This controller never starts an agent, checks an account, or reads chat history.
 @MainActor
-final class CurrentSettingsController: NSObject, ObservableObject {
-    @Published var folderURL: URL?
+final class CurrentSettingsController: ObservableObject {
     @Published private(set) var runs: [AgentPlatform: CurrentSettingsRun] = [:]
+    @Published private(set) var nativeSettings: [AgentPlatform: StandMixerModNativeSettings] = [:]
     @Published private(set) var isDemo = false
-    private let service: AgentImportService
-    private var tasks: [AgentPlatform: Task<Void, Never>] = [:]
-    private var generations: [AgentPlatform: Int] = [:]
-    private var lastScope: URL?
+    private let service: IntegrationService
 
-    init(service: AgentImportService) {
+    init(service: IntegrationService) {
         self.service = service
-        super.init()
-        NotificationCenter.default.addObserver(self, selector: #selector(applicationWillTerminate(_:)), name: NSApplication.willTerminateNotification, object: nil)
-    }
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-        tasks.values.forEach { $0.cancel() }
+        refreshAll(platforms: Set(AgentPlatform.allCases))
     }
 
-    var scopeURL: URL { folderURL ?? FileManager.default.homeDirectoryForCurrentUser }
+    var scopeURL: URL { service.home }
     func run(for platform: AgentPlatform) -> CurrentSettingsRun { runs[platform] ?? CurrentSettingsRun() }
     func finding(platform: AgentPlatform, category: WorkCategory) -> ImportedRoute? {
-        let routes = runs[platform]?.proposal?.routes ?? []
-        return Self.preferredFinding(in: routes, category: category)
-    }
-
-    static func preferredFinding(in routes: [ImportedRoute], category: WorkCategory) -> ImportedRoute? {
-        let matches = routes.filter { $0.category == category }
-        return matches.first { $0.scope == .current && $0.hasKnownSettings }
-            ?? matches.first { $0.scope == .usual && $0.hasKnownSettings }
-            ?? matches.first { $0.scope == .current }
-            ?? matches.first
-    }
-
-    func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        panel.directoryURL = scopeURL
-        panel.prompt = "Use folder"
-        panel.begin { [weak self] result in
-            guard result == .OK, let url = panel.url else { return }
-            Task { @MainActor in self?.folderURL = url }
-        }
+        runs[platform]?.proposal?.routes.first { $0.category == category }
     }
 
     func refreshAll(platforms: Set<AgentPlatform>) {
         guard !ProcessInfo.processInfo.arguments.contains("--snapshot") else { return }
-        for platform in AgentPlatform.allCases where !platforms.contains(platform) { cancel(platform) }
-        if lastScope != scopeURL {
-            for platform in AgentPlatform.allCases {
-                cancel(platform)
-                runs[platform] = CurrentSettingsRun()
-            }
-        }
-        lastScope = scopeURL
-        for platform in AgentPlatform.allCases where platforms.contains(platform) { refresh(platform) }
-    }
-
-    func refresh(_ platform: AgentPlatform) {
-        guard !ProcessInfo.processInfo.arguments.contains("--snapshot") else { return }
-        tasks.removeValue(forKey: platform)?.cancel()
-        generations[platform, default: 0] += 1
-        let generation = generations[platform]!
-        var next = run(for: platform)
-        next.state = .running(.starting)
-        runs[platform] = next
-        let service = service
-        let folder = scopeURL
-        tasks[platform] = Task { [weak self] in
-            do {
-                let proposal = try await service.inspect(platform: platform, workingDirectory: folder) { [weak self] phase in
-                    Task { @MainActor [weak self] in
-                        guard let self, self.generations[platform] == generation, self.run(for: platform).state.isRunning else { return }
-                        self.runs[platform]?.state = .running(phase)
-                    }
-                }
-                guard let self, self.generations[platform] == generation, !Task.isCancelled else { return }
-                self.runs[platform] = CurrentSettingsRun(state: .completed, proposal: proposal, receivedAt: Date())
-                self.tasks.removeValue(forKey: platform)
-            } catch {
-                guard let self, self.generations[platform] == generation else { return }
-                self.runs[platform]?.state = error is CancellationError || Task.isCancelled ? .cancelled : .failed(error.localizedDescription)
-                self.tasks.removeValue(forKey: platform)
-            }
-        }
-    }
-
-    func cancel(_ platform: AgentPlatform) {
-        guard run(for: platform).state.isRunning else { return }
-        generations[platform, default: 0] += 1
-        tasks.removeValue(forKey: platform)?.cancel()
-        runs[platform]?.state = .cancelled
-    }
-
-    /// Configuration and scope changes invalidate evidence without starting inference.
-    func invalidateReports(platforms: Set<AgentPlatform> = Set(AgentPlatform.allCases)) {
+        let installed = try? service.installationStatus()
         for platform in platforms {
-            cancel(platform)
-            runs[platform]?.state = .idle
+            let native = StandMixerModNativeSettings.capture(platform: platform, service: service)
+            nativeSettings[platform] = native
+            var routes: [ImportedRoute] = []
+            if installed?.state == .applied, installed?.installedPlatforms.contains(platform) == true,
+               let profile = installed?.appliedConfiguration?.profile(for: platform) {
+                routes = WorkCategory.allCases.compactMap { category in
+                    guard let route = profile.effectiveRoute(for: category) else { return nil }
+                    return ImportedRoute(category: category, modelID: route.modelID, effort: route.effort,
+                        evidence: [.init(path: "StandMixer installation record", explanation: "Verified applied routing configuration.")],
+                        additionalAgents: route.additionalAgents.map(ImportedAgentAssignment.init),
+                        resultMode: route.resultMode, judgeModelID: route.judgeModelID)
+                }
+            } else if let model = native.modelID {
+                routes = [.init(category: .coordinator, modelID: model, modelPlatform: platform,
+                    effort: native.effort.map(EffortPolicy.fixed),
+                    evidence: [.init(path: native.sourcePath, explanation: native.detail)])]
+            }
+            runs[platform] = .init(state: .completed,
+                proposal: .init(platform: platform, workingDirectory: service.home.path, routes: routes,
+                    summary: "Saved local settings. Running sessions may use different choices."), receivedAt: Date())
         }
     }
 
-    func clearReports() {
-        AgentPlatform.allCases.forEach(cancel)
-        runs = [:]
-        lastScope = nil
+    func invalidateReports(platforms: Set<AgentPlatform> = Set(AgentPlatform.allCases)) {
+        refreshAll(platforms: platforms)
     }
-
-    @objc private func applicationWillTerminate(_ notification: Notification) {
-        AgentPlatform.allCases.forEach(cancel)
-    }
+    func clearReports() { runs = [:]; nativeSettings = [:] }
 
     func loadSnapshotDemo(configuration: StandMixerConfiguration, platforms: Set<AgentPlatform>) {
         guard ProcessInfo.processInfo.arguments.contains("--snapshot") else { return }
