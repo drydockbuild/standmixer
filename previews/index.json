@@ -1,9 +1,13 @@
 {
-  "title": "StandMixer 0.2.2",
+  "title": "StandMixer 0.2.6 website",
   "images": [
     {
-      "file": "codex-collapsed.png",
-      "caption": "All six groups closed: child rows are hidden without changing their settings."
+      "file": "website-0.2.6-live.jpg",
+      "caption": "Live website with current version and released Codex settings interface."
+    },
+    {
+      "file": "website-social-0.2.6.jpg",
+      "caption": "New link-preview image for StandMixer 0.2.6."
     }
   ]
 }

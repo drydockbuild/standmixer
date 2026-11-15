@@ -81,7 +81,7 @@ status: published 0.1.8 on 2026-11-10 (33b5e67) · started: 2026-11-10 · branch
 - [x] Verify and install the display update locally without modifying any assignments (~7m). · took: ~5m
 
 ## 0.2
-status: 0.2.6 published and installed locally; website refresh in progress · started: 2026-11-14 · branch: website/0.2.6-refresh · revision: website-026-1 · Mac build: 20
+status: 0.2.6 published and installed locally; live website and previews updated and verified · started: 2026-11-14 · branch: website/0.2.6-refresh · revision: website-026-1 · Mac build: 20 · took: ~15m
 
 - [x] Add six routing groups, independently inherited overrides, and migration that preserves existing assignments (~25m, Sol 6.1). · took: ~25m
 - [x] Add the agreed Optimized defaults and deliberate Fast and High-quality presets (~10m, Sol 6.1). · took: ~20m
@@ -117,7 +117,8 @@ This batch selects models, effort, and explicit teams. Permissions remain with t
 
 ### Found while working
 
-- [ ] Refresh the live website for 0.2.6 with the current interface capture and link-preview artwork (~10m, Astra 6). · started: 2026-11-14 · branch: website/0.2.6-refresh
+- [x] Refresh the live website for 0.2.6 with the current interface capture and link-preview artwork (~15m, Astra 6). · started: 2026-11-14 · branch: website/0.2.6-refresh · took: ~15m
+  Published the current-version link, released Codex UI capture using isolated factory data, and 1200×630 share-preview artwork with new asset URLs. Verified desktop/mobile layout, loaded images, release link, social metadata, and exact live HTML/image bytes at https://standmixer.dev/. The static release was switched atomically with its prior release retained; runtime settings and release artifacts were unchanged.
 
 - [x] Prepare 0.2.6 release documentation, verify packages, and complete independent release review (~40m, Astra 6 + Fable 5.2 + Sol 6.1). · started: 2026-11-14 · branch: v0.2 · took: ~40m
   Completed independent native and Fable 5.2 reviews. Fixed bounded pipe draining, late sheet callbacks, redundant connection writes under contention, worker locale changes, misleading probe errors, and unnecessary account fields. Retained owned-process cleanup rather than abandoning an unreaped group for a hypothetical kernel stall. Final checks passed: 360 Swift tests (one platform skip), 112 Codex UI tests, 61 Claude panel tests, 45 installer/package tests, packaged-helper lifecycle, native Codex loader, MCP/HTTP boundaries, universal helper signatures, and local Mac build 20. A one-turn Haiku 5.5 request through the final helper returned the expected smoke-test response. The public snapshot is based on the existing public main history and excludes private reply routes. Fresh public-clone/update and deployed-site checks require publication; the other-Mac upgrade remains pending. No push, tag publication, GitHub Release, or website deployment occurred.
