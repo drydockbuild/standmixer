@@ -73,10 +73,10 @@ test('optional version checks do not block editing or change the draft', async (
   const initial={...state(),canCheckUpdates:true};const fixture=harness(on,initial);
   let finish;const result=new Promise(resolve=>{finish=resolve;});fixture.setUpdateCheck(()=>result);
   await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6.2-astra'});
   finish({ok:true,update:{currentVersion:'0.1.2',latestVersion:'0.2.0'}});
   await Promise.resolve();await Promise.resolve();
-  expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
+  expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.2-astra');
   expect(await ui.find({type:'Text',text:'Update 0.2.0 available · /standmixer update'})).toBeDefined();
   expect(fixture.calls.map(x=>x.action)).toEqual(['state','checkUpdates']);
 });
@@ -104,9 +104,9 @@ test('update rejects extra arguments and preserves an in-progress edit', async (
   for(const args of ['update --yes','update --mac extra','update https://example.invalid'])await $.command.run({command:'standmixer',args});
   expect(fixture.updateCalls).toEqual([]);
   await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6.2-astra'});
   await $.command.run({command:'standmixer',args:'update'});
-  expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
+  expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.2-astra');
   expect(await ui.find({key:'save-edit'})).toBeDefined();expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
 });
 
@@ -277,7 +277,7 @@ test('advanced edits stay local and returning from review discards its apply tok
   await $.command.run({ command: 'standmixer', args: '' });
   const ui = await $.ui.mount({ ...pane, surface: 'terminal' });
   await ui.press({ key: 'edit-ui' });
-  await ui.select({ key: 'codex-ui-member-0-model', value: 'gpt-6-astra' });
+  await ui.select({ key: 'codex-ui-member-0-model', value: 'gpt-6.2-astra' });
   await ui.select({key:'codex-ui-team',value:'2'});
   await ui.select({ key: 'codex-ui-member-1-model', value: 'claude-fable-5-1' });
   await ui.select({ key: 'codex-ui-member-1-effort', value: 'fixed' });
@@ -285,7 +285,7 @@ test('advanced edits stay local and returning from review discards its apply tok
   expect(fixture.calls.length).toBe(1);
   await saveAndReview(ui);
   const route = fixture.calls[1].configuration.profiles[0].routes.find(route => route.category === 'ui');
-  expect(route.modelID).toBe('gpt-6-astra');
+  expect(route.modelID).toBe('gpt-6.2-astra');
   expect(route.additionalAgents[0].effort.value).toBe('max');
   await ui.press({ key: 'review-back' });
   expect(await ui.find({ key: 'apply-reviewed' })).toBeUndefined();
@@ -317,9 +317,9 @@ test('custom assignments survive toggles, show unavailable models, and block Rev
   await ui.press({ key: 'more' });
   await ui.press({ key: 'provider-codex' });
   const picker = await ui.find({ key: 'claude-implementation-member-0-model' });
-  expect(picker.props.value).toBe('gpt-6.1-sol');
-  expect(picker.props.options.find(option => option.value === 'gpt-6.1-sol').label).toContain('unavailable');
-  expect(picker.props.options.some(option => option.value === 'gpt-6-astra')).toBe(false);
+  expect(picker.props.value).toBe('gpt-6.2-sol');
+  expect(picker.props.options.find(option => option.value === 'gpt-6.2-sol').label).toContain('unavailable');
+  expect(picker.props.options.some(option => option.value === 'gpt-6.2-astra')).toBe(false);
   await saveAndReview(ui);
   expect(await ui.find({ type: 'Text', text: /Some assignments use a disabled provider/ })).toBeDefined();
   expect(await ui.find({ key: 'apply-reviewed' })).toBeUndefined();
@@ -420,7 +420,7 @@ test('model family levels match Mac identities and unknown custom models remain 
   expect(modelIdentity({ id: 'claude-fable-5-2', platform: 'claude' }).level).toBe(3);
   expect(modelIdentity({ id: 'claude-fable-9', platform: 'claude' }).level).toBe(0);
   expect(modelIdentity({ id: 'custom-sol-powered', label: 'My Sol experiment', platform: 'codex' }).level).toBe(0);
-  expect(modelIdentity({ id: 'gpt-6.1-sol', platform: 'claude' }).level).toBe(0);
+  expect(modelIdentity({ id: 'gpt-6.2-sol', platform: 'claude' }).level).toBe(0);
 });
 
 test('recipe matching ignores inert UUID and Auto fields but preserves team order and result handling', () => {
@@ -595,11 +595,11 @@ test('Sources reads existing defaults and keeps local tool details collapsed unt
 
 test('legacy reports and account metadata never appear or supply current comparisons', async ($, on) => {
   const current = state();
-  current.configuration.profiles[0].routes[0].modelID = 'gpt-6.1-sol';
+  current.configuration.profiles[0].routes[0].modelID = 'gpt-6.2-sol';
   current.nativeSettings = [{ platform: 'codex', status: 'known', modelID: 'gpt-6-luna', effort: 'low', sourcePath: '/fixture/config.toml', detail: 'Saved global defaults' }];
   current.inspection = { expiresAt: '2099-01-01T00:00:00Z', reports: [{ platform: 'codex', status: 'complete', summary: 'Legacy report',
-    routes: [{ category: 'ui', modelID: 'gpt-6-astra', scope: 'usual', evidence: [{ path: '/fixture/legacy.md' }], uncertainties: ['Legacy uncertainty'] },
-      { category: 'coordinator', modelID: 'gpt-6-astra', scope: 'current', evidence: [], uncertainties: [] }], sources: [] }] };
+    routes: [{ category: 'ui', modelID: 'gpt-6.2-astra', scope: 'usual', evidence: [{ path: '/fixture/legacy.md' }], uncertainties: ['Legacy uncertainty'] },
+      { category: 'coordinator', modelID: 'gpt-6.2-astra', scope: 'current', evidence: [], uncertainties: [] }], sources: [] }] };
   current.accounts = { providers: [{ platform: 'codex', status: 'signedIn', email: 'legacy-account@example.test' }] };
   const fixture = harness(on, current);
   await $.command.run({ command: 'standmixer', args: '' });
@@ -655,9 +655,9 @@ test('a missing catalog model stays visible and repairable in the inline editor'
   const picker = await ui.find({ key: 'codex-ui-member-0-model' });
   expect(picker.props.value).toBe('formerly-discovered-model');
   expect(picker.props.options.find(option => option.value === 'formerly-discovered-model').label).toContain('currently unavailable');
-  await ui.select({ key: 'codex-ui-member-0-model', value: 'gpt-6.1-sol' });
+  await ui.select({ key: 'codex-ui-member-0-model', value: 'gpt-6.2-sol' });
   await saveAndReview(ui);
-  expect(fixture.calls[1].configuration.profiles[0].routes.find(route => route.category === 'ui').modelID).toBe('gpt-6.1-sol');
+  expect(fixture.calls[1].configuration.profiles[0].routes.find(route => route.category === 'ui').modelID).toBe('gpt-6.2-sol');
 });
 
 // Explicit row geometry only. Real terminal QA remains the authority for paint
@@ -678,8 +678,8 @@ test('terminal renders comparison rows and quiet Auto effort without SVG or stre
   const current = state();
   const high = current.presets.find(preset => preset.id === 'high').configuration;
   const workers = {
-    codex: [['gpt-6-astra'], ['gpt-6-astra', 'claude-opus-5-5'], ['gpt-6-astra', 'claude-opus-5-5', 'claude-fable-5-1'], ['gpt-6-astra'], ['gpt-6-astra', 'claude-fable-5-1', 'claude-opus-5-5'], ['claude-opus-5-5', 'gpt-6-astra'], ['gpt-6-luna']],
-    claude: [['claude-opus-5-5'], ['claude-opus-5-5', 'claude-fable-5-1'], ['claude-opus-5-5', 'claude-fable-5-1', 'gpt-6-astra'], ['claude-opus-5-5'], ['claude-fable-5-1', 'gpt-6-astra', 'claude-opus-5-5'], ['claude-opus-5-5', 'gpt-6-astra'], ['claude-haiku-5-5']],
+    codex: [['gpt-6.2-astra'], ['gpt-6.2-astra', 'claude-opus-5-5'], ['gpt-6.2-astra', 'claude-opus-5-5', 'claude-fable-5-1'], ['gpt-6.2-astra'], ['gpt-6.2-astra', 'claude-fable-5-1', 'claude-opus-5-5'], ['claude-opus-5-5', 'gpt-6.2-astra'], ['gpt-6-luna']],
+    claude: [['claude-opus-5-5'], ['claude-opus-5-5', 'claude-fable-5-1'], ['claude-opus-5-5', 'claude-fable-5-1', 'gpt-6.2-astra'], ['claude-opus-5-5'], ['claude-fable-5-1', 'gpt-6.2-astra', 'claude-opus-5-5'], ['claude-opus-5-5', 'gpt-6.2-astra'], ['claude-haiku-5-5']],
   };
   for (const profile of high.profiles) profile.routes.forEach((route, index) => {
     route.modelID = workers[profile.platform][index][0];
@@ -710,7 +710,7 @@ test('Controller Auto shows the current-model policy and hides effort while pres
   const model = await ui.find({ key: 'codex-coordinator-member-0-model' });
   expect(model.props.options[0]).toEqual({ value: 'auto', label: 'Auto · Current model' });
   expect(await ui.find({ key: 'codex-coordinator-member-0-effort' })).toBeUndefined();
-  await ui.select({ key: 'codex-coordinator-member-0-model', value: 'gpt-6.1-sol' });
+  await ui.select({ key: 'codex-coordinator-member-0-model', value: 'gpt-6.2-sol' });
   expect(await ui.find({ key: 'codex-coordinator-member-0-effort' })).toBeDefined();
   await ui.select({ key: 'codex-coordinator-member-0-effort', value: 'fixed' });
   await ui.select({ key: 'codex-coordinator-member-0-model', value: 'auto' });
@@ -722,7 +722,7 @@ test('Controller Auto shows the current-model policy and hides effort while pres
 
 test('Controller Auto compares a verified pinned policy and is absent from worker and judge choices', async ($, on) => {
   const current = state(), applied = JSON.parse(JSON.stringify(current.configuration));
-  applied.profiles[0].routes[0].modelID = 'gpt-6.1-sol';
+  applied.profiles[0].routes[0].modelID = 'gpt-6.2-sol';
   current.configuration.profiles[0].routes[0].modelID = 'auto';
   current.installation = { state: 'applied', summary: 'Applied', hasInstallation: true, installedPlatforms: ['codex', 'claude'], appliedConfiguration: applied };
   harness(on, current);
@@ -735,7 +735,7 @@ test('Controller Auto compares a verified pinned policy and is absent from worke
   await ui.select({ key: 'codex-ui-result-mode', value: 'ai' });
   const judge = await ui.find({ key: 'codex-ui-judge-model' });
   expect(judge.props.options.some(option => option.value === 'auto')).toBe(false);
-  expect(judge.props.value).toBe('gpt-6.1-sol');
+  expect(judge.props.value).toBe('gpt-6.2-sol');
 });
 
 test('install-mac uses only its explicit helper action and opens build controls without inference', async ($, on) => {
@@ -792,13 +792,13 @@ test('Edit opens only one comparison row; Cancel restores the draft with no writ
   expect((await ui.find({ key: 'edit' })).props.label).toBe('Edit…');await ui.press({ key: 'edit-implementation' });
   expect(await ui.find({ key: 'save-edit' })).toBeDefined();expect(await ui.find({ key: 'save-draft' })).toBeUndefined();expect(await ui.find({ key: 'review' })).toBeUndefined();
   for(const platform of ['codex','claude'])expect(await ui.find({key:platform+'-implementation-member-0-model'})).toBeDefined();expect(await ui.find({key:'codex-ui-member-0-model'})).toBeUndefined();
-  expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6-astra' });expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();expect(await ui.find({key:'editor-codex-implementation'})).toBeDefined();await ui.press({key:'undo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({key:'redo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6.1-sol' });expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({key:'codex-implementation-member-0-effort',value:'fixed'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({key:'codex-implementation-member-0-effort',value:'auto'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({ key: 'preset-high' });
+  expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6.2-astra' });expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();expect(await ui.find({key:'editor-codex-implementation'})).toBeDefined();await ui.press({key:'undo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({key:'redo-draft'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({ key: 'codex-implementation-member-0-model', value: 'gpt-6.2-sol' });expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.select({key:'codex-implementation-member-0-effort',value:'fixed'});expect(await ui.find({type:'Text',text:'Edited'})).toBeDefined();await ui.select({key:'codex-implementation-member-0-effort',value:'auto'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({ key: 'preset-high' });
   await ui.press({ key: 'cancel-edit' });expect(fixture.calls.map(call=>call.action)).toEqual(['state']);await ui.press({key:'edit-coordinator'});expect(await ui.find({type:'Text',text:'Edited'})).toBeUndefined();await ui.press({key:'cancel-edit'});await ui.press({ key: 'review' });expect(fixture.calls[1].configuration).toEqual(before);
 });
 test('Save writes only the draft and exits; failed Save keeps edits and Cancel intact', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'save-edit'});
-  expect(await ui.find({key:'save-edit'})).toBeDefined();expect(await ui.find({key:'cancel-edit'})).toBeDefined();expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6.2-astra'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'save-edit'});
+  expect(await ui.find({key:'save-edit'})).toBeDefined();expect(await ui.find({key:'cancel-edit'})).toBeDefined();expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.2-astra');
   fixture.setSaveFailure(null);await ui.press({key:'save-edit'});expect(await ui.find({key:'save-edit'})).toBeUndefined();expect(await ui.find({key:'edit'})).toBeDefined();expect(fixture.calls.map(call=>call.action)).toEqual(['state','saveDraft','saveDraft']);
 });
 
@@ -810,8 +810,8 @@ test('canonical StandMixer command shows the mixer and explicit interfaces witho
 });
 test('explicit Web and Mac opening leaves the native Edit draft intact', async ($, on) => {
   const initial=state();initial.installedMac={isAvailable:true,detail:'Owned fixture app'};const fixture=harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'interfaces'});expect((await ui.find({key:'interface-mac'})).props.label).toBe('Mac · Open');await ui.press({key:'interface-web'});await ui.press({key:'interface-mac'});
-  expect(fixture.calls.map(x=>x.action)).toEqual(['state','openWeb','openMac']);expect(fixture.openedURLs).toEqual(['http://127.0.0.1:54321/#token='+'a'.repeat(43)]);expect(await ui.find({key:'save-edit'})).toBeDefined();expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');await ui.press({key:'cancel-edit'});
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6.2-astra'});await ui.press({key:'interfaces'});expect((await ui.find({key:'interface-mac'})).props.label).toBe('Mac · Open');await ui.press({key:'interface-web'});await ui.press({key:'interface-mac'});
+  expect(fixture.calls.map(x=>x.action)).toEqual(['state','openWeb','openMac']);expect(fixture.openedURLs).toEqual(['http://127.0.0.1:54321/#token='+'a'.repeat(43)]);expect(await ui.find({key:'save-edit'})).toBeDefined();expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.2-astra');await ui.press({key:'cancel-edit'});
 });
 test('native Web opening rejects untrusted addresses before invoking the system opener', async ($, on) => {
   const fixture=harness(on);fixture.setOpeningURL('https://example.test/#token=secret');await $.command.run({command:'standmixer',args:'web'});const ui=await $.ui.mount({...pane,surface:'desktop'});
@@ -820,16 +820,16 @@ test('native Web opening rejects untrusted addresses before invoking the system 
 
 test('draft Undo and Redo stay local while editing and survive Save without applying native settings', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'undo-draft'});expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.1-sol');expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
-  await ui.press({key:'redo-draft'});expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6-astra');await ui.press({key:'save-edit'});await ui.press({key:'undo-draft'});expect(fixture.calls[2].configuration.profiles[0].routes.find(x=>x.category==='implementation').modelID).toBe('gpt-6.1-sol');await ui.press({key:'redo-draft'});expect(fixture.calls.map(x=>x.action)).toEqual(['state','saveDraft','saveDraft','saveDraft']);
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6.2-astra'});await ui.press({key:'undo-draft'});expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.2-sol');expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
+  await ui.press({key:'redo-draft'});expect((await ui.find({key:'codex-implementation-member-0-model'})).props.value).toBe('gpt-6.2-astra');await ui.press({key:'save-edit'});await ui.press({key:'undo-draft'});expect(fixture.calls[2].configuration.profiles[0].routes.find(x=>x.category==='implementation').modelID).toBe('gpt-6.2-sol');await ui.press({key:'redo-draft'});expect(fixture.calls.map(x=>x.action)).toEqual(['state','saveDraft','saveDraft','saveDraft']);
 });
 test('Cancel restores the Undo history from Edit entry and repeated selections add no history', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'preset-optimized'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();await ui.press({key:'preset-fast'});await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'undo-draft'});await ui.press({key:'cancel-edit'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();await ui.press({key:'undo-draft'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
+  await ui.press({key:'preset-optimized'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();await ui.press({key:'preset-fast'});await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6.2-astra'});await ui.press({key:'undo-draft'});await ui.press({key:'cancel-edit'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();await ui.press({key:'undo-draft'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(fixture.calls.map(x=>x.action)).toEqual(['state']);
 });
 test('failed saved Undo keeps its history for retry and successful Apply clears it', async ($, on) => {
   const fixture=harness(on);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
-  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6-astra'});await ui.press({key:'save-edit'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();expect((await ui.find({key:'undo-draft'})).props.dimColor).toBe(false);fixture.setSaveFailure(null);await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeDefined();await ui.press({key:'review'});await ui.press({key:'apply-reviewed'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(await ui.find({key:'redo-draft'})).toBeUndefined();
+  await ui.press({key:'edit-implementation'});await ui.select({key:'codex-implementation-member-0-model',value:'gpt-6.2-astra'});await ui.press({key:'save-edit'});fixture.setSaveFailure('Draft write failed.');await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeUndefined();expect((await ui.find({key:'undo-draft'})).props.dimColor).toBe(false);fixture.setSaveFailure(null);await ui.press({key:'undo-draft'});expect(await ui.find({key:'redo-draft'})).toBeDefined();await ui.press({key:'review'});await ui.press({key:'apply-reviewed'});expect(await ui.find({key:'undo-draft'})).toBeUndefined();expect(await ui.find({key:'redo-draft'})).toBeUndefined();
 });
 
 test('Redo of an unsaved native change never saves merely because Undo reached the saved baseline', async ($, on) => {
@@ -845,8 +845,8 @@ test('Connections shows version and Check now explicitly refreshes without apply
   await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
   await ui.press({key:'more'});await ui.press({key:'check-updates'});
   expect(fixture.calls.filter(x=>x.action==='checkUpdates').at(-1)).toEqual({action:'checkUpdates',refresh:true});
-  expect(await ui.find({type:'Text',text:'StandMixer 0.2.6'})).toBeDefined();
-  expect(await ui.find({type:'Text',text:'v0.2.6'})).toBeDefined();
+  expect(await ui.find({type:'Text',text:'StandMixer 0.2.8'})).toBeDefined();
+  expect(await ui.find({type:'Text',text:'v0.2.8'})).toBeDefined();
   expect(await ui.find({type:'Text',text:'v0.1.5'})).toBeUndefined();
   expect(await ui.find({type:'Text',text:'Up to date.'})).toBeDefined();
   expect(fixture.calls.some(x=>['apply','saveDraft','inspect'].includes(x.action))).toBe(false);
@@ -888,32 +888,32 @@ test('hierarchical comparison opens one inline row and edits independent inherit
 });
 test('native effective assignments and recipe identity preserve independent model effort and team policies',async()=>{
   const initial=hierarchyState(),config=initial.configuration,profile=config.profiles.find(profile=>profile.platform==='codex'),parent=profile.routes.find(route=>route.category==='review'),child=profile.routes.find(route=>route.category==='securityReview');
-  parent.modelID='gpt-6-astra';parent.effort={mode:'fixed',value:'max'};parent.additionalAgents=[{id:'secondary',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'high'}}];
+  parent.modelID='gpt-6.2-astra';parent.effort={mode:'fixed',value:'max'};parent.additionalAgents=[{id:'secondary',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'high'}}];
   expect(effectiveRoute(config,'codex','securityReview').additionalAgents[0].modelID).toBe('claude-fable-5-2');
   const before=recipeKey(config,['codex']);child.modelID='gpt-6-luna';expect(recipeKey(config,['codex'])).toBe(before);child.inheritsModel=false;expect(recipeKey(config,['codex'])===before).toBe(false);
   expect(effectiveRoute(config,'codex','securityReview').modelID).toBe('gpt-6-luna');expect(effectiveRoute(config,'codex','securityReview').effort.value).toBe('max');
-  child.inheritsTeam=false;child.additionalAgents=[{id:'own',modelID:'gpt-6.1-sol',effort:{mode:'fixed',value:'max'}}];expect(effectiveRoute(config,'codex','securityReview').additionalAgents[0].modelID).toBe('gpt-6.1-sol');
+  child.inheritsTeam=false;child.additionalAgents=[{id:'own',modelID:'gpt-6.2-sol',effort:{mode:'fixed',value:'max'}}];expect(effectiveRoute(config,'codex','securityReview').additionalAgents[0].modelID).toBe('gpt-6.2-sol');
   expect(parent.additionalAgents[0].modelID).toBe('claude-fable-5-2');
 });
 
 
 test('When stuck edits ordered independent steps and saves a draft without parallel workers',async($,on)=>{
   const initial=hierarchyState(),route=initial.configuration.profiles[0].routes.find(route=>route.category==='debugging');
-  route.stuckEscalation=['claude-fable-5-2','gpt-6-astra','claude-opus-5-5'].map((modelID,index)=>({id:'step-'+index,modelID,effort:{mode:'fixed',value:'max'}}));
+  route.stuckEscalation=['claude-fable-5-2','gpt-6.2-astra','claude-opus-5-5'].map((modelID,index)=>({id:'step-'+index,modelID,effort:{mode:'fixed',value:'max'}}));
   const before=routeKey(route),copy=JSON.parse(JSON.stringify(route));copy.stuckEscalation[0].id='different-id';expect(routeKey(copy)).toBe(before);copy.stuckEscalation.reverse();expect(routeKey(copy)===before).toBe(false);
   const fixture=harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
   expect({orderedSummary:!!await ui.find({key:'stuck-summary-codex-debugging'})}).toEqual({orderedSummary:true});
-  await ui.press({key:'edit-debugging'});await ui.select({key:'codex-debugging-stuck-0-model',value:'gpt-6-astra'});expect({duplicateRejected:!!await ui.find({type:'Text',text:'Choose a different model for each escalation step.'})}).toEqual({duplicateRejected:true});
+  await ui.press({key:'edit-debugging'});await ui.select({key:'codex-debugging-stuck-0-model',value:'gpt-6.2-astra'});expect({duplicateRejected:!!await ui.find({type:'Text',text:'Choose a different model for each escalation step.'})}).toEqual({duplicateRejected:true});
   await ui.press({key:'codex-debugging-stuck-1-up'});await ui.select({key:'codex-debugging-stuck-0-level',value:'medium'});
   expect(fixture.calls.map(call=>call.action)).toEqual(['state']);await ui.press({key:'save-edit'});
-  const saved=fixture.calls[1].configuration.profiles[0].routes.find(route=>route.category==='debugging');expect(saved.stuckEscalation.map(worker=>worker.modelID)).toEqual(['gpt-6-astra','claude-fable-5-2','claude-opus-5-5']);expect(saved.stuckEscalation[0].effort.value).toBe('medium');expect(saved.additionalAgents).toEqual([]);expect(saved.inheritsEffort).toBe(true);
+  const saved=fixture.calls[1].configuration.profiles[0].routes.find(route=>route.category==='debugging');expect(saved.stuckEscalation.map(worker=>worker.modelID)).toEqual(['gpt-6.2-astra','claude-fable-5-2','claude-opus-5-5']);expect(saved.stuckEscalation[0].effort.value).toBe('medium');expect(saved.additionalAgents).toEqual([]);expect(saved.inheritsEffort).toBe(true);
 });
 
 
 test('manual collapse hides configured children and When stuck without saving, then restores their choices',async($,on)=>{
   const initial=hierarchyState(),children={planning:['quickIdeas','algorithms'],ui:['uiBuild','uiReview'],implementation:['routineCoding','debugging'],review:['developmentSecurity','securityReview'],research:['draftingEditing','deepAnalysis'],mechanical:['computerUse']};
   for(const profile of initial.configuration.profiles)for(const route of profile.routes.filter(route=>Object.values(children).flat().includes(route.category))){
-    route.inheritsModel=false;route.modelID='gpt-6-astra';route.inheritsEffort=false;route.effort={mode:'fixed',value:'medium'};route.inheritsTeam=false;route.additionalAgents=[{id:'extra',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'max'}}];
+    route.inheritsModel=false;route.modelID='gpt-6.2-astra';route.inheritsEffort=false;route.effort={mode:'fixed',value:'medium'};route.inheritsTeam=false;route.additionalAgents=[{id:'extra',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'max'}}];
     if(route.category==='debugging')route.stuckEscalation=[{id:'next',modelID:'claude-opus-5-5',effort:{mode:'fixed',value:'max'}}];
   }
   const before=JSON.stringify(initial.configuration),fixture=harness(on,initial);await $.command.run({command:'standmixer',args:''});const ui=await $.ui.mount({...pane,surface:'desktop'});
@@ -925,7 +925,7 @@ test('manual collapse hides configured children and When stuck without saving, t
     await ui.press({key:'disclose-'+parent});for(const task of tasks)expect(await ui.find({key:'row-'+task})).toBeDefined();
   }
   expect(JSON.stringify(initial.configuration)).toBe(before);expect(fixture.calls.map(call=>call.action)).toEqual(['state']);
-  await ui.press({key:'edit-uiBuild'});expect((await ui.find({key:'codex-uiBuild-member-0-model'})).props.value).toBe('gpt-6-astra');await ui.select({key:'codex-uiBuild-member-0-level',value:'high'});
+  await ui.press({key:'edit-uiBuild'});expect((await ui.find({key:'codex-uiBuild-member-0-model'})).props.value).toBe('gpt-6.2-astra');await ui.select({key:'codex-uiBuild-member-0-level',value:'high'});
   await ui.press({key:'disclose-ui'});expect(await ui.find({key:'codex-uiBuild-member-0-level'})).toBeUndefined();expect(await ui.find({key:'done-row-uiBuild'})).toBeUndefined();expect(fixture.calls.map(call=>call.action)).toEqual(['state']);
   await ui.press({key:'disclose-ui'});expect(await ui.find({key:'codex-uiBuild-member-0-level'})).toBeUndefined();await ui.press({key:'edit-uiBuild'});expect((await ui.find({key:'codex-uiBuild-member-0-level'})).props.value).toBe('high');
   await ui.press({key:'save-edit'});const saved=fixture.calls[1].configuration.profiles.find(profile=>profile.platform==='codex').routes.find(route=>route.category==='uiBuild');expect(saved.effort.value).toBe('high');expect(saved.inheritsModel).toBe(false);expect(saved.inheritsEffort).toBe(false);expect(saved.inheritsTeam).toBe(false);

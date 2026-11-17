@@ -30,7 +30,7 @@ final class CommandInterfaceTests: XCTestCase {
         XCTAssertEqual(preview.exitCode, 0)
         XCTAssertTrue(preview.text.contains("↳ Routine coding"))
         XCTAssertTrue(preview.text.contains("Fable 5.2 via Claude Code (max)"))
-        XCTAssertTrue(preview.text.contains("Sol 6.1 via Codex"))
+        XCTAssertTrue(preview.text.contains("Sol 6.2 via Codex"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.applicationSupport.path))
         let apply = await StandMixerCommandInterface.run(arguments: ["optimized", "--yes"], service: service, availablePlatforms: [.codex, .claude])
         XCTAssertEqual(apply.exitCode, 0, apply.text)

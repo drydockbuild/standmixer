@@ -31,7 +31,7 @@ public struct StandMixerClaudeInvocation: Codable, Sendable, Equatable {
         self.executable = executable; self.home = home; self.configDirectory = configDirectory
     }
 
-    /// Public status and sign-in use a fixed locale for CLI output.
+    /// Public status, sign-in, and logout use a fixed locale for CLI output.
     public func environment(from source: [String: String]) -> [String: String] {
         var result = workerEnvironment(from: source)
         result["LC_ALL"] = "C"
@@ -79,26 +79,31 @@ public struct StandMixerClaudeInvocation: Codable, Sendable, Equatable {
 
 /// Settings can check the public CLI status on open when routes require Claude Code.
 /// Checks never invoke a model. Only connect() may start the official browser login.
+/// Logout delegates to the official CLI and keeps the same nonsecret launch profile.
 public actor StandMixerClaudeConnectionService {
     public static let maximumCheckDuration: TimeInterval = 12
     public static let maximumLoginDuration: TimeInterval = 300
+    public static let maximumLogoutDuration: TimeInterval = 12
     private let service: IntegrationService
     private let checkDuration: TimeInterval
     private let loginDuration: TimeInterval
+    private let logoutDuration: TimeInterval
     private let probeDuration: TimeInterval
-    private var connecting = false
+    private var mutatingConnection = false
     private var preferenceURL: URL { service.applicationSupport.appendingPathComponent("claude-connection.json") }
 
     public init(service: IntegrationService) {
         self.service = service
-        checkDuration = Self.maximumCheckDuration; loginDuration = Self.maximumLoginDuration; probeDuration = 2
+        checkDuration = Self.maximumCheckDuration; loginDuration = Self.maximumLoginDuration
+        logoutDuration = Self.maximumLogoutDuration; probeDuration = 2
     }
 
     init(service: IntegrationService, checkDuration: TimeInterval, loginDuration: TimeInterval = 300,
-         probeDuration: TimeInterval = 2) {
+         logoutDuration: TimeInterval = 12, probeDuration: TimeInterval = 2) {
         self.service = service
         self.checkDuration = min(Self.maximumCheckDuration, max(0.01, checkDuration))
         self.loginDuration = min(Self.maximumLoginDuration, max(0.01, loginDuration))
+        self.logoutDuration = min(Self.maximumLogoutDuration, max(0.01, logoutDuration))
         self.probeDuration = max(0.01, probeDuration)
     }
 
@@ -107,11 +112,11 @@ public actor StandMixerClaudeConnectionService {
     }
 
     public func connect() async throws -> StandMixerClaudeConnectionReport {
-        guard !connecting else {
-            return .init(state: .unavailable, detail: "Claude sign-in is already in progress. Complete or cancel it before trying again.")
+        guard !mutatingConnection else {
+            return mutationInProgress()
         }
-        connecting = true
-        defer { connecting = false }
+        mutatingConnection = true
+        defer { mutatingConnection = false }
         let checked = try await findConnection(profile: remembered() ?? currentProfile())
         guard checked.report.state == .signInRequired, let invocation = checked.invocation else { return checked.report }
         try Task.checkCancellation()
@@ -135,6 +140,57 @@ public actor StandMixerClaudeConnectionService {
         }
         if report.state == .connected, !(try await remember(invocation)) { return preferenceFailure(invocation) }
         return report
+    }
+
+    /// Sign out only the profile used by StandMixer and other Claude Code sessions that
+    /// share it. Status need not be available first; the official CLI owns all credentials.
+    public func logout() async throws -> StandMixerClaudeConnectionReport {
+        guard !mutatingConnection else { return mutationInProgress() }
+        mutatingConnection = true
+        defer { mutatingConnection = false }
+        let checked = try await findLogoutInvocation(profile: remembered() ?? currentProfile())
+        guard let invocation = checked.invocation else { return checked.report }
+        // Preserve the exact namespace for a later Connect, including unset versus
+        // explicit CLAUDE_CONFIG_DIR. Do not forget or delete the launch preference.
+        guard try await remember(invocation) else {
+            return .init(state: .unavailable,
+                detail: "Claude was not signed out because StandMixer could not save this profile for reconnecting. Check again.",
+                cliPath: invocation.executable.path)
+        }
+        try Task.checkCancellation()
+        _ = try remembered(for: invocation)
+        let confirmed: Bool
+        do {
+            // Logout output is untrusted and may contain account information. Drain it
+            // without capture. Once mutation starts, never retry with another binary.
+            let result = try await run(invocation, arguments: ["auth", "logout"], timeout: logoutDuration, maximumBytes: 0)
+            try Task.checkCancellation()
+            guard result.exitCode == 0 else {
+                return logoutUnknown(invocation, detail: "Claude logout did not complete.")
+            }
+            confirmed = Self.confirmsLogout(try await statusResult(invocation, timeout: checkDuration))
+        } catch is CancellationError { throw CancellationError() }
+        catch ClaudeConnectionProcess.Failure.timedOut {
+            return logoutUnknown(invocation, detail: "Claude logout or its confirmation reached its time limit and was stopped.")
+        } catch {
+            return logoutUnknown(invocation, detail: "Claude logout or its confirmation could not complete.")
+        }
+        guard confirmed else {
+            return logoutUnknown(invocation, detail: "Claude logout could not be confirmed.")
+        }
+        return .init(state: .signInRequired,
+            detail: "Claude is signed out of the profile used by StandMixer and Claude Code. Choose Connect Claude to sign in with another account.",
+            cliPath: invocation.executable.path)
+    }
+
+    private func mutationInProgress() -> StandMixerClaudeConnectionReport {
+        .init(state: .unavailable, detail: "Claude sign-in or logout is already in progress. Complete or cancel it before trying again.")
+    }
+
+    private func logoutUnknown(_ invocation: StandMixerClaudeInvocation, detail: String) -> StandMixerClaudeConnectionReport {
+        .init(state: .unavailable,
+            detail: detail + " Sign-in status is unknown. Check the connection before trying again. No automatic sign-in was started.",
+            cliPath: invocation.executable.path)
     }
 
     /// Resolve and verify the saved connection without opening a browser. A removed or updated
@@ -176,6 +232,46 @@ public actor StandMixerClaudeConnectionService {
     private struct Checked {
         var report: StandMixerClaudeConnectionReport
         var invocation: StandMixerClaudeInvocation?
+    }
+
+    /// Logout chooses a verified executable without requiring a recognized auth status.
+    /// An updated/removed saved CLI may be replaced before logout, in the saved profile.
+    private func findLogoutInvocation(profile: StandMixerClaudeInvocation) async throws -> Checked {
+        try Task.checkCancellation()
+        guard !service.metadataOnlyDiscovery else {
+            return .init(report: .init(state: .unavailable, detail: "Claude logout is disabled in fixture mode. No command was started."))
+        }
+        guard profile.valid, profile.home == service.home else {
+            return .init(report: .init(state: .unavailable, detail: "The Claude profile path is not valid. Use an absolute CLAUDE_CONFIG_DIR path or leave it unset. No logout was started."))
+        }
+        let deadline = ProcessInfo.processInfo.systemUptime + checkDuration
+        var executables = service.cliDiscovery.candidates(.claude).map(\.executable)
+        // Historical metadata does not bypass discovery's protected-path, symlink,
+        // executable, and regular-file checks. Even --version runs executable code.
+        if let saved = try remembered(for: profile), let index = executables.firstIndex(of: saved.executable) {
+            executables.insert(executables.remove(at: index), at: 0)
+        }
+        guard !executables.isEmpty else {
+            return .init(report: .init(state: .missing, detail: "Claude Code was not found in known installation locations. Install the official Claude Code CLI, then try logout again. No logout was started."))
+        }
+        for executable in executables {
+            try Task.checkCancellation()
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { break }
+            let invocation = StandMixerClaudeInvocation(executable: executable, home: profile.home,
+                                                        configDirectory: profile.configDirectory)
+            do {
+                let version = try await run(invocation, arguments: ["--version"], timeout: min(probeDuration, remaining), maximumBytes: 4096)
+                guard version.exitCode == 0, !version.overflow,
+                      CLIDiscovery.versionToken(String(decoding: version.output, as: UTF8.self), platform: .claude) != nil else { continue }
+                return .init(report: .init(state: .unavailable, detail: "Claude logout is ready.", cliPath: executable.path),
+                             invocation: invocation)
+            } catch is CancellationError { throw CancellationError() }
+            catch { continue }
+        }
+        try Task.checkCancellation()
+        return .init(report: .init(state: .unavailable,
+            detail: "Claude Code could not be verified within this check. Sign-in status is unknown. No logout was started. Check the official CLI, then try again."))
     }
 
     private func findConnection(profile: StandMixerClaudeInvocation) async throws -> Checked {
@@ -226,10 +322,25 @@ public actor StandMixerClaudeConnectionService {
 
     private func status(_ invocation: StandMixerClaudeInvocation, timeout: TimeInterval,
                         workingDirectory: URL? = nil) async throws -> StandMixerClaudeConnectionReport {
+        Self.parse(try await statusResult(invocation, timeout: timeout, workingDirectory: workingDirectory),
+                   cliPath: invocation.executable.path)
+    }
+
+    private func statusResult(_ invocation: StandMixerClaudeInvocation, timeout: TimeInterval,
+                              workingDirectory: URL? = nil) async throws -> ClaudeConnectionProcess.Result {
         let result = try await run(invocation, arguments: ["auth", "status", "--json"], timeout: timeout,
                                    maximumBytes: 64 * 1024, workingDirectory: workingDirectory)
         try Task.checkCancellation()
-        return Self.parse(result, cliPath: invocation.executable.path)
+        return result
+    }
+
+    private static func confirmsLogout(_ result: ClaudeConnectionProcess.Result) -> Bool {
+        // An expired logged-in session also needs sign-in, but does not prove logout.
+        guard !result.overflow, result.exitCode == 0 || result.exitCode == 1,
+              let object = try? JSONSerialization.jsonObject(with: result.output) as? [String: Any],
+              let loggedIn = object["loggedIn"] as? NSNumber,
+              CFGetTypeID(loggedIn) == CFBooleanGetTypeID() else { return false }
+        return !loggedIn.boolValue
     }
 
     private func run(_ invocation: StandMixerClaudeInvocation, arguments: [String], timeout: TimeInterval,
@@ -316,7 +427,7 @@ public actor StandMixerClaudeConnectionService {
                 return try service.withOperationLock {
                     try Task.checkCancellation()
                     if try remembered(for: invocation) == invocation { return true }
-                    return (try? service.write(JSONEncoder().encode(invocation), to: preferenceURL, mode: 0o600)) != nil
+                    return (try? storePreference(invocation)) != nil
                 }
             } catch StandMixerError.conflict {
                 try Task.checkCancellation()
@@ -327,9 +438,27 @@ public actor StandMixerClaudeConnectionService {
             }
         }
     }
+
+    private func storePreference(_ invocation: StandMixerClaudeInvocation) throws {
+        // Foundation's first atomic write can briefly expose an empty destination.
+        // Prepare a complete private file before publishing it to concurrent readers.
+        let staging = preferenceURL.deletingLastPathComponent()
+            .appendingPathComponent(".claude-connection-\(UUID().uuidString).tmp")
+        try service.checkNoSymlink(staging)
+        let descriptor = Darwin.open(staging.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close(); _ = Darwin.unlink(staging.path) }
+        try handle.write(contentsOf: JSONEncoder().encode(invocation))
+        guard fchmod(descriptor, 0o600) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        try service.checkNoSymlink(preferenceURL)
+        guard Darwin.rename(staging.path, preferenceURL.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
 }
 
-/// One owned process group per probe/login. Adapted from Sketchwright's InvocationProcessGroup:
+/// One owned process group per probe/login/logout. Adapted from Sketchwright's InvocationProcessGroup:
 /// retain the exited leader until all signaling is done, so its group ID cannot be recycled.
 final class ClaudeConnectionProcess: @unchecked Sendable {
     enum Failure: Error { case cancelled, timedOut, launchFailed }

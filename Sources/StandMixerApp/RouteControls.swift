@@ -24,12 +24,13 @@ struct ModelPicker: View {
         AgentPlatform.allCases.filter { (restrictedPlatform == nil || $0 == restrictedPlatform) && store.modelPlatforms.contains($0) }
     }
     private var selectableModels: [ModelSpec] {
-        store.availableModels.filter { platforms.contains($0.platform) && !excludedModelIDs.contains($0.id) }
+        store.selectableModels.filter { platforms.contains($0.platform) && !excludedModelIDs.contains($0.id) }
     }
     private var trimmedID: String { customID.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var customValidation: String? {
         guard !trimmedID.isEmpty else { return nil }
         if excludedModelIDs.contains(trimmedID) { return "This model is already in the sequence." }
+        if AppStore.supersededModelIDs.contains(trimmedID) { return "Use Sol 6.2 or Astra 6.2 for these model families." }
         if trimmedID == Route.autoControllerModelID { return "Auto is reserved for the Controller setting." }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/[]")
         guard trimmedID.count <= 180, trimmedID.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {

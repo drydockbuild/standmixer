@@ -20,6 +20,8 @@ Terminal installation opens the local web interface. Inside Claude Code or Codex
 
 ## Presets and editing
 
+Sol and Astra assignments now use **Sol 6.2** and **Astra 6.2**. Existing editable choices upgrade those model IDs while retaining effort, teams, and overrides; Review & apply updates active worker routing.
+
 **Fast** keeps strong models at lower effort for ordinary work, **Optimized** matches models and effort to each kind of work, and **High-quality** uses more Fable and two-model teams for substantive work. Presets select workers for warranted tasks without adding mandatory workflow stages.
 
 Six main groups cover Planning & algorithms, Design & UI, General coding, Code review, Research & writing, and Routine tasks. Optional subcategories inherit model, effort, and team settings independently. A fixed child setting stays fixed when its parent changes; **Use parent** restores inheritance. Older saved configurations retain their assignments, including a separate Algorithms override where needed.
@@ -40,7 +42,7 @@ In the Codex/web panel, click a model name or effort bar to change it directly. 
 
 ## Accounts and preferences
 
-**Sources** shows saved local defaults and installed CLI versions. The native Codex panel and Mac app automatically run Claude Code’s public `auth status --json` check when you open settings with Codex-to-Claude routes configured, choose Claude for Codex, or re-enable a provider those routes need. A working connection stays quiet. If the check needs attention, StandMixer opens the connection dialog. **Not now** lets you continue configuring routes. **Connect Claude for Codex** also checks the current status. Choose **Continue with Claude** to start the official `auth login` browser flow. Claude Code owns credentials. StandMixer keeps only the checked executable and profile metadata.
+**Sources** shows saved local defaults and installed CLI versions. The native Codex panel and Mac app automatically run Claude Code’s public `auth status --json` check when you open settings with Codex-to-Claude routes configured, choose Claude for Codex, or re-enable a provider those routes need. A working connection stays quiet. If the check needs attention, StandMixer opens the connection dialog. **Not now** lets you continue configuring routes. **Connect Claude for Codex** also checks the current status. Choose **Continue with Claude** to start the official `auth login` browser flow. Claude Code owns credentials. StandMixer keeps only the checked executable and profile metadata. To change accounts, choose **Log out…** in that connection dialog and confirm. This signs out the shared Claude Code CLI profile, including other apps or workers using it, while retaining your routing settings. Then choose **Continue with Claude** to sign in again. The explicit Terminal equivalent is `standmixer logout-claude --yes`; without `--yes`, it only explains the action.
 
 Codex workers resolve their CLI with `standmixer resolve-cli codex`. Claude workers use `standmixer run-claude -- -p …`, which checks the linked native connection in the worker’s directory and replaces itself with the selected CLI. The same profile is used for checking, sign-in, and execution; versioned executables can be rediscovered without switching profiles. No browser login or model retry starts automatically from a worker launch. A signed-in Desktop session alone does not establish independent CLI authentication.
 
@@ -76,7 +78,7 @@ Subsequent updates preserve presets, drafts, backups, and modified or unowned fi
 
 `/standmixer uninstall` or **Sources → Remove StandMixer settings** previews restoration of the original managed settings. The Mac app offers **Settings → Uninstall StandMixer**. Later user edits are preserved. Remove the plugin separately in the host's plugin manager; saved presets, recovery data, source, and the optional app remain.
 
-The [0.2.6 upgrade test plan](docs/upgrade-test.md) covers migration from 0.1.4, a standard update from 0.1.8 or an earlier 0.2.x release, and checking that a repeated update preserves the restore point.
+The [0.2.8 upgrade test plan](docs/upgrade-test.md) covers migration from 0.1.4, a standard update from 0.1.8 or an earlier 0.2.x release, and checking that a repeated update preserves the restore point.
 
 The installer prints the full Terminal command path without changing your shell's PATH. The launcher also accepts `status`, `fast`, `optimized`, `high`, and `uninstall`; routing changes preview first and require `--yes`.
 

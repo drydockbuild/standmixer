@@ -69,8 +69,8 @@ final class ExternalWorkerGuideTests: XCTestCase {
         XCTAssertTrue(claude.contains("run_in_background: true"))
         XCTAssertTrue(claude.contains("real returned task ID and output_file"))
         XCTAssertTrue(claude.contains("native completion notice, then use Read"))
-        XCTAssertTrue(claude.contains("Sol 6.1 via Codex · <task>"))
-        XCTAssertTrue(claude.contains("-m 'gpt-6.1-sol'"))
+        XCTAssertTrue(claude.contains("Sol 6.2 via Codex · <task>"))
+        XCTAssertTrue(claude.contains("-m 'gpt-6.2-sol'"))
         XCTAssertTrue(codex.contains("exec_command sessions, write_stdin waits"))
         XCTAssertTrue(codex.contains("Fable 5.2 via Claude Code · <task>"))
         XCTAssertTrue(codex.contains("--model 'claude-fable-5-2'"))
@@ -86,8 +86,8 @@ final class ExternalWorkerGuideTests: XCTestCase {
             XCTAssertFalse(guide.contains(".local/bin/claude"))
         }
         let policy = try XCTUnwrap(preview.changes.first { $0.path == service.claudeHome.appendingPathComponent("CLAUDE.md").path }).after
-        XCTAssertTrue(policy.contains("direct external CLI recipe `external-gpt-6.1-sol-max`"))
-        XCTAssertFalse(policy.contains("standmixer-gpt-6.1-sol-max"))
+        XCTAssertTrue(policy.contains("direct external CLI recipe `external-gpt-6.2-sol-max`"))
+        XCTAssertFalse(policy.contains("standmixer-gpt-6.2-sol-max"))
     }
 
     func testExactGuideAllowlistRejectsSiblingAndCustomRootsClassifyCorrectly() throws {

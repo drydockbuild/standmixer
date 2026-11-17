@@ -40,6 +40,7 @@ final class AppStore: ObservableObject {
     @Published private(set) var claudeConnectionActivity: ClaudeConnectionActivity?
     @Published private(set) var claudeConnectionError: String?
     @Published private(set) var claudeConnectionWasAutomatic = false
+    @Published private(set) var showsClaudeLogoutConfirmation = false
     private var claudePromptSuppressed = false
     // Confirmation belongs to this open/choice, never to the app's lifetime.
     private var claudeConnectionIntent = 0
@@ -54,7 +55,8 @@ final class AppStore: ObservableObject {
     // onDisappear finishes cleanup. A newer check/presentation invalidates it.
     private var activeClaudeConnectionPresentationID: UUID?
 
-    enum ClaudeConnectionActivity { case checking, connecting }
+    enum ClaudeConnectionActivity: Equatable { case checking, connecting, loggingOut }
+    private enum ClaudeConnectionOperation { case check, connect, logout }
     struct ClaudeConnectionPresentation: Identifiable { let id = UUID() }
     let currentSettings: CurrentSettingsController
 
@@ -135,6 +137,8 @@ final class AppStore: ObservableObject {
     var availableModels: [ModelSpec] {
         ModelSpec.catalog(discovered: discoveredModels, custom: configuration.customModels)
     }
+    static let supersededModelIDs: Set<String> = ["gpt-6.1-sol", "gpt-6-astra"]
+    var selectableModels: [ModelSpec] { availableModels.filter { !Self.supersededModelIDs.contains($0.id) } }
     var presetKey: String {
         if let preferredPresetKey, let candidate = presetConfiguration(preferredPresetKey), matches(candidate) { return preferredPresetKey }
         for preset in StandMixerPreset.allCases {
@@ -247,11 +251,44 @@ final class AppStore: ObservableObject {
         checkClaudeConnection()
     }
 
-    func checkClaudeConnection() { runClaudeConnection(connect: false) }
+    func checkClaudeConnection() { runClaudeConnection(.check) }
 
     func connectClaude() {
         guard claudeConnection?.state == .signInRequired else { return }
-        runClaudeConnection(connect: true)
+        runClaudeConnection(.connect)
+    }
+
+    var canLogoutClaude: Bool {
+        guard !isTerminating, showsClaudeConnection, claudeConnectionTask == nil,
+              let report = claudeConnection else { return false }
+        return report.state == .connected || report.state == .unavailable
+    }
+
+    func requestClaudeLogout(presentationID: UUID) {
+        guard activeClaudeConnectionPresentationID == presentationID, canLogoutClaude else { return }
+        showsClaudeLogoutConfirmation = true
+    }
+
+    func cancelClaudeLogoutConfirmation(presentationID: UUID) {
+        guard activeClaudeConnectionPresentationID == presentationID else { return }
+        showsClaudeLogoutConfirmation = false
+    }
+
+    func logoutClaude(presentationID: UUID) {
+        guard activeClaudeConnectionPresentationID == presentationID,
+              showsClaudeLogoutConfirmation, canLogoutClaude else { return }
+        showsClaudeLogoutConfirmation = false
+        // A confirmed logout invalidates any earlier authentication decision and
+        // review request, even when logout is later cancelled or cannot be verified.
+        claudeConnectionIntent += 1
+        confirmedClaudeConnectionIntent = nil
+        claudePromptSuppressed = false
+        claudePreviewConfiguration = nil
+        claudeConnectionWasAutomatic = false
+        cancelPreparingPreview()
+        preview = nil
+        previewPlatforms = []
+        runClaudeConnection(.logout)
     }
 
     func dismissClaudeConnection(presentationID: UUID) {
@@ -280,6 +317,7 @@ final class AppStore: ObservableObject {
         claudeConnectionError = nil
         claudeConnectionPresentation = nil
         claudeConnectionWasAutomatic = false
+        showsClaudeLogoutConfirmation = false
     }
 
     var hasPendingClaudeConnectionCleanup: Bool { !pendingClaudeConnectionTasks.isEmpty }
@@ -308,7 +346,7 @@ final class AppStore: ObservableObject {
         }
         guard !showsClaudeConnection, preview == nil, uninstallPreview == nil else { return false }
         if beforePreview { claudePreviewConfiguration = configuration }
-        runClaudeConnection(connect: false, quietly: true)
+        runClaudeConnection(.check, quietly: true)
         return true
     }
 
@@ -325,23 +363,39 @@ final class AppStore: ObservableObject {
         if checkingClaudeQuietly { cancelClaudeConnection() }
     }
 
-    private func runClaudeConnection(connect: Bool, quietly: Bool = false) {
-        guard !isTerminating, (showsClaudeConnection || quietly), claudeConnectionTask == nil else { return }
-        if quietly { activeClaudeConnectionPresentationID = nil }
+    private func runClaudeConnection(_ operation: ClaudeConnectionOperation, quietly: Bool = false) {
+        guard !isTerminating, !showsClaudeLogoutConfirmation || !showsClaudeConnection,
+              (showsClaudeConnection || quietly), claudeConnectionTask == nil else { return }
+        if quietly {
+            activeClaudeConnectionPresentationID = nil
+            showsClaudeLogoutConfirmation = false
+        }
         claudeConnectionGeneration += 1
         let generation = claudeConnectionGeneration
         let intent = claudeConnectionIntent
         checkingClaudeQuietly = quietly
-        claudeConnectionActivity = quietly ? nil : connect ? .connecting : .checking
+        if quietly { claudeConnectionActivity = nil }
+        else {
+            switch operation {
+            case .check: claudeConnectionActivity = .checking
+            case .connect: claudeConnectionActivity = .connecting
+            case .logout: claudeConnectionActivity = .loggingOut
+            }
+        }
         claudeConnection = nil
         claudeConnectionError = nil
         let task = Task { [weak self, claudeConnectionService] in
             defer { self?.pendingClaudeConnectionTasks.removeValue(forKey: generation) }
             do {
-                let report = try await (connect ? claudeConnectionService.connect() : claudeConnectionService.check())
+                let report: StandMixerClaudeConnectionReport
+                switch operation {
+                case .check: report = try await claudeConnectionService.check()
+                case .connect: report = try await claudeConnectionService.connect()
+                case .logout: report = try await claudeConnectionService.logout()
+                }
                 guard let self, !Task.isCancelled, self.claudeConnectionGeneration == generation else { return }
                 self.claudeConnection = report
-                if report.state == .connected {
+                if report.state == .connected && operation != .logout {
                     self.confirmedClaudeConnectionIntent = intent
                     self.claudePromptSuppressed = false
                 }
@@ -779,11 +833,11 @@ final class AppStore: ObservableObject {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let changes = [
             FileChange(path: home + "/.codex/config.toml",
-                       before: "model = \"gpt-6.1-sol\"\nmodel_reasoning_effort = \"medium\"\n",
-                       after: "model = \"gpt-6.1-sol\"\nmodel_reasoning_effort = \"low\"\n",
+                       before: "model = \"gpt-6.2-sol\"\nmodel_reasoning_effort = \"medium\"\n",
+                       after: "model = \"gpt-6.2-sol\"\nmodel_reasoning_effort = \"low\"\n",
                        reason: "Restore the defaults from before the first apply."),
             FileChange(path: home + "/.codex/agents/standmixer-worker.toml",
-                       before: "name = \"standmixer-worker\"\nmodel = \"gpt-6.1-sol\"\n",
+                       before: "name = \"standmixer-worker\"\nmodel = \"gpt-6.2-sol\"\n",
                        after: "", reason: "Remove an unchanged StandMixer worker.", isDeletion: true),
             FileChange(path: home + "/.claude/skills/standmixer/SKILL.md",
                        before: "Open StandMixer to choose a preset or uninstall.\n",

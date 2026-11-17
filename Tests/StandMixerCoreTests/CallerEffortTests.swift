@@ -69,10 +69,10 @@ final class CallerEffortTests: XCTestCase {
         edit(&configuration, platform: .codex, category: .planning) { $0.effort = .auto }
         edit(&configuration, platform: .claude, category: .planning) { $0.effort = .auto }
         let preview = try service.preview(configuration: configuration)
-        let codex = try file(".codex/agents/standmixer-gpt-6-astra-auto.toml", in: preview)
-        XCTAssertTrue(codex.contains("model = \"gpt-6-astra\""))
+        let codex = try file(".codex/agents/standmixer-gpt-6.2-astra-auto.toml", in: preview)
+        XCTAssertTrue(codex.contains("model = \"gpt-6.2-astra\""))
         XCTAssertFalse(codex.contains("model_reasoning_effort ="))
-        XCTAssertEqual(try selectorDescription(codex), "Model selector: Astra 6; effort: follow caller. Supported launch levels: low, medium, high, xhigh, max, ultra.")
+        XCTAssertEqual(try selectorDescription(codex), "Model selector: Astra 6.2; effort: follow caller. Supported launch levels: low, medium, high, xhigh, max, ultra.")
         let claude = try file(".claude/agents/standmixer-claude-fable-5-2-auto.md", in: preview)
         XCTAssertTrue(claude.contains("model: claude-fable-5-2\n---"))
         XCTAssertFalse(claude.contains("\neffort:"))
@@ -129,7 +129,7 @@ final class CallerEffortTests: XCTestCase {
         let custom = try XCTUnwrap(preview.changes.first { $0.path.contains("standmixer-custom-caller-auto-") }).after
         XCTAssertFalse(custom.contains("model_reasoning_effort ="))
         XCTAssertTrue(try selectorDescription(custom).contains("Supported launch levels: low, high."))
-        XCTAssertTrue(try file(".codex/agents/standmixer-gpt-6-astra-xhigh.toml", in: preview).contains("model_reasoning_effort = \"xhigh\""))
+        XCTAssertTrue(try file(".codex/agents/standmixer-gpt-6.2-astra-xhigh.toml", in: preview).contains("model_reasoning_effort = \"xhigh\""))
         let externalFixed = try file(".claude/skills/standmixer/references/external-workers.md", in: preview)
         XCTAssertTrue(externalFixed.contains("model_reasoning_effort=\"ultra\""))
         XCTAssertFalse(externalFixed.contains("<mapped-caller-effort>"))

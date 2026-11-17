@@ -53,7 +53,7 @@ final class CoordinatorInvariantTests: XCTestCase {
 
     func testForeignAndUndefinedCoordinatorsCannotBePreviewedOrSaved() throws {
         try service.saveConfiguration(.defaults)
-        for (platform, modelID) in [(AgentPlatform.codex, "claude-opus-5-5"), (.claude, "gpt-6.1-sol"), (.codex, "undefined-native-model"), (.claude, "undefined-native-model")] {
+        for (platform, modelID) in [(AgentPlatform.codex, "claude-opus-5-5"), (.claude, "gpt-6.2-sol"), (.codex, "undefined-native-model"), (.claude, "undefined-native-model")] {
             let invalid = replacingCoordinator(modelID, for: platform)
             XCTAssertThrowsError(try service.preview(configuration: invalid, platforms: [platform]))
             XCTAssertThrowsError(try service.saveConfiguration(invalid))

@@ -1,5 +1,5 @@
 export const modelCatalog = [
-  ['gpt-6.1-sol', 'Sol 6.1', 'codex'], ['gpt-6-astra', 'Astra 6', 'codex'],
+  ['gpt-6.2-sol', 'Sol 6.2', 'codex'], ['gpt-6.2-astra', 'Astra 6.2', 'codex'],
   ['gpt-6-luna', 'Luna 6', 'codex'], ['gpt-6.1-terra', 'Terra 6.1', 'codex'], ['claude-sonnet-5-5', 'Sonnet 5.5', 'claude'], ['claude-opus-5-5', 'Opus 5.5', 'claude'],
   ['claude-fable-5-1', 'Fable 5.1', 'claude'], ['claude-fable-5-2', 'Fable 5.2', 'claude'], ['claude-haiku-5-5', 'Haiku 5.5', 'claude'],
 ].map(([id, label, platform]) => ({ id, label, platform, supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] }));
@@ -8,11 +8,11 @@ export const auto = { mode: 'auto', value: 'high', minimum: 'low', maximum: 'hig
 export function configuration(high = false, platforms = ['codex', 'claude']) {
   return { customModels: [], enabledPlatforms: platforms, profiles: ['codex', 'claude'].map(platform => ({
     platform, routes: categories.map((category, index) => ({
-      category, modelID: category === 'coordinator' ? 'auto' : platform === 'codex' ? 'gpt-6.1-sol'
-        : category === 'implementation' ? platforms.length === 1 ? 'claude-fable-5-1' : 'gpt-6.1-sol' : 'claude-opus-5-5', effort: { ...auto },
+      category, modelID: category === 'coordinator' ? 'auto' : platform === 'codex' ? 'gpt-6.2-sol'
+        : category === 'implementation' ? platforms.length === 1 ? 'claude-fable-5-1' : 'gpt-6.2-sol' : 'claude-opus-5-5', effort: { ...auto },
       additionalAgents: high && category === 'ui' ? [
-        { id: `00000000-0000-4000-8000-00000000000${index}`, modelID: platforms.length === 1 && platform === 'claude' ? 'claude-fable-5-1' : 'gpt-6-astra', effort: { ...auto } },
-        { id: `00000000-0000-4000-8000-00000000010${index}`, modelID: platforms.length === 1 && platform === 'codex' ? 'gpt-6-astra' : 'claude-fable-5-1', effort: { ...auto } },
+        { id: `00000000-0000-4000-8000-00000000000${index}`, modelID: platforms.length === 1 && platform === 'claude' ? 'claude-fable-5-1' : 'gpt-6.2-astra', effort: { ...auto } },
+        { id: `00000000-0000-4000-8000-00000000010${index}`, modelID: platforms.length === 1 && platform === 'codex' ? 'gpt-6.2-astra' : 'claude-fable-5-1', effort: { ...auto } },
       ] : [], resultMode: 'coordinator',
     })),
   })) };

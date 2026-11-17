@@ -1,4 +1,4 @@
-# Other-Mac upgrade test for 0.2.6
+# Other-Mac upgrade test for 0.2.8
 
 Run the test over the existing installation. Version 0.1.4 exercises the one-time migration from the old data layout. Version 0.1.8 or an earlier 0.2.x release exercises a standard update under the current layout.
 
@@ -14,14 +14,14 @@ Reload Claude plugins or restart Codex. Verify StandMixer opens in each installe
 
 ## 2. Test the update after publication (~3 minutes)
 
-While 0.2.6 is the current public release, run **one** of these in the agent chat.
+While 0.2.8 is the current public release, run **one** of these in the agent chat.
 
 - Codex: `$standmixer update`
 - Claude Code: `/standmixer update`
 
 For the legacy migration, use the plain update command. If you use the optional Mac app, rebuild it afterward with `install-mac` because the 0.1.4 updater's `--mac` step still references the former source location. For a standard update, you can add `--mac` to rebuild the app at the same time.
 
-Reload Claude plugins or restart Codex, then reopen StandMixer. **Sources** in Codex or **Connections** in Claude should show **0.2.6**. **Check now** should report that StandMixer is up to date and refresh the check time. Confirm the **Upgrade test** preset retains its model and effort assignments. If you rebuilt the Mac app, its window should show **v0.2.6 · build 20**. You can choose **Not now** if a Claude connection prompt appears during the check.
+Reload Claude plugins or restart Codex, then reopen StandMixer. **Sources** in Codex or **Connections** in Claude should show **0.2.8**. **Check now** should report that StandMixer is up to date and refresh the check time. Confirm the **Upgrade test** preset retains its model and effort assignments. If you rebuilt the Mac app, its window should show **v0.2.8 · build 22**. You can choose **Not now** if a Claude connection prompt appears during the check.
 
 The legacy migration moves the old installation into a private recovery folder and retains presets and drafts. Load **Upgrade test**, review the changes, and **Apply** once to install routing at the new paths. Start new agent chats to load those instructions. If cleanup stops on a conflict, keep the files and report the message. A standard update keeps routing in place and needs no migration Apply step.
 

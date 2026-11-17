@@ -110,8 +110,8 @@ public struct ModelSpec: Codable, Hashable, Identifiable, Sendable {
             defaultEffort: try values.decodeIfPresent(String.self, forKey: .defaultEffort))
     }
     public static let builtIn: [ModelSpec] = [
-        .init(id: "gpt-6.1-sol", label: "Sol 6.1", platform: .codex, defaultEffort: "low"),
-        .init(id: "gpt-6-astra", label: "Astra 6", platform: .codex, defaultEffort: "medium"),
+        .init(id: "gpt-6.2-sol", label: "Sol 6.2", platform: .codex, defaultEffort: "low"),
+        .init(id: "gpt-6.2-astra", label: "Astra 6.2", platform: .codex, defaultEffort: "medium"),
         .init(id: "gpt-6.1-terra", label: "Terra 6.1", platform: .codex, defaultEffort: "low"),
         .init(id: "gpt-6-luna", label: "Luna 6", platform: .codex, supportedEfforts: Array(EffortPolicy.levels.dropLast()), defaultEffort: "medium"),
         .init(id: "claude-opus-5-5", label: "Opus 5.5", platform: .claude, supportedEfforts: Array(EffortPolicy.levels.dropLast()), defaultEffort: "medium"),
@@ -364,6 +364,37 @@ public struct StandMixerConfiguration: Codable, Hashable, Sendable {
     }
     public func profile(for platform: AgentPlatform) -> RoutingProfile? { profiles.first { $0.platform == platform } }
 
+    /// Upgrade exact model references in editable configurations. Applied records
+    /// and reviewed plans retain the models that were actually rendered.
+    func updatingLegacyCodexModels() -> Self {
+        let replacements = ["gpt-6.1-sol": "gpt-6.2-sol", "gpt-6-astra": "gpt-6.2-astra"]
+        func updateAssignment(_ assignment: AgentAssignment) -> AgentAssignment {
+            var updated = assignment
+            updated.modelID = replacements[assignment.modelID] ?? assignment.modelID
+            return updated
+        }
+
+        var updated = self
+        for index in updated.profiles.indices {
+            updated.profiles[index].routes = updated.profiles[index].routes.map { route in
+                var next = route
+                next.modelID = replacements[route.modelID] ?? route.modelID
+                next.additionalAgents = route.additionalAgents.map(updateAssignment)
+                next.judgeModelID = route.judgeModelID.map { replacements[$0] ?? $0 }
+                // Resolve collisions introduced by the upgrade in configured order.
+                var firstOriginalIDs: [String: String] = [:]
+                next.stuckEscalation = route.stuckEscalation.compactMap { assignment in
+                    let updated = updateAssignment(assignment)
+                    let firstID = firstOriginalIDs[updated.modelID] ?? assignment.modelID
+                    firstOriginalIDs[updated.modelID] = firstID
+                    return firstID == assignment.modelID ? updated : nil
+                }
+                return next
+            }
+        }
+        return updated
+    }
+
     struct AppliedSnapshot: Decodable {
         let configuration: StandMixerConfiguration
         private enum CodingKeys: String, CodingKey { case profiles, customModels, enabledPlatforms }
@@ -428,7 +459,7 @@ public struct StandMixerConfiguration: Codable, Hashable, Sendable {
     }
 
     private enum PresetModel: String {
-        case luna = "gpt-6-luna", sol = "gpt-6.1-sol", astra = "gpt-6-astra"
+        case luna = "gpt-6-luna", sol = "gpt-6.2-sol", astra = "gpt-6.2-astra"
         case haiku = "claude-haiku-5-5", opus = "claude-opus-5-5", fable = "claude-fable-5-2"
     }
 

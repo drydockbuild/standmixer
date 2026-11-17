@@ -46,7 +46,7 @@ public final class IntegrationService: @unchecked Sendable {
 
     public func loadConfiguration() throws -> StandMixerConfiguration {
         guard files.fileExists(atPath: configurationURL.path) else { return .defaults }
-        return recoverNativeCoordinators(try JSONDecoder().decode(StandMixerConfiguration.self, from: Data(contentsOf: configurationURL)))
+        return prepareEditableConfiguration(try JSONDecoder().decode(StandMixerConfiguration.self, from: Data(contentsOf: configurationURL)))
     }
 
     public func saveConfiguration(_ configuration: StandMixerConfiguration) throws {
@@ -61,7 +61,7 @@ public final class IntegrationService: @unchecked Sendable {
     public func loadPreviousDraft() throws -> StandMixerConfiguration? {
         let url = applicationSupport.appendingPathComponent("previous-draft.json")
         guard let text = try readText(url) else { return nil }
-        return recoverNativeCoordinators(try JSONDecoder().decode(StandMixerConfiguration.self, from: Data(text.utf8)))
+        return prepareEditableConfiguration(try JSONDecoder().decode(StandMixerConfiguration.self, from: Data(text.utf8)))
     }
 
     public func savePreviousDraft(_ configuration: StandMixerConfiguration) throws {
@@ -78,7 +78,7 @@ public final class IntegrationService: @unchecked Sendable {
         guard let text = try readText(url) else { return [] }
         return try JSONDecoder().decode([SavedRoutingPreset].self, from: Data(text.utf8)).map { preset in
             var recovered = preset
-            recovered.configuration = recoverNativeCoordinators(preset.configuration)
+            recovered.configuration = prepareEditableConfiguration(preset.configuration)
             return recovered
         }
     }
@@ -117,9 +117,10 @@ public final class IntegrationService: @unchecked Sendable {
         ModelSpec.catalog(discovered: discoveredModels(), custom: configuration.customModels)
     }
 
-    private func recoverNativeCoordinators(_ configuration: StandMixerConfiguration) -> StandMixerConfiguration {
+    private func prepareEditableConfiguration(_ configuration: StandMixerConfiguration) -> StandMixerConfiguration {
         lock.lock(); defer { lock.unlock() }
-        let recovery = configuration.repairingNativeCoordinators(catalog: modelCatalog(configuration))
+        let updated = configuration.updatingLegacyCodexModels()
+        let recovery = updated.repairingNativeCoordinators(catalog: modelCatalog(updated))
         for note in recovery.notes where !recoveryNotes.contains(note) { recoveryNotes.append(note) }
         return recovery.configuration
     }
@@ -491,7 +492,7 @@ public final class IntegrationService: @unchecked Sendable {
 
         """ + "\n"
         if platform == .claude {
-            text += "Launch the recipe once with the native Bash tool using run_in_background: true and a target-first description such as `Sol 6.1 via Codex · implement the requested change`. Retain the real returned task ID and output_file. Continue independent work; wait for the native completion notice, then use Read on that output file and the recipe's result file. A background task ID or a queued/start response is not completion. Do not create a second agent to launch or watch it.\n\n"
+            text += "Launch the recipe once with the native Bash tool using run_in_background: true and a target-first description such as `Sol 6.2 via Codex · implement the requested change`. Retain the real returned task ID and output_file. Continue independent work; wait for the native completion notice, then use Read on that output file and the recipe's result file. A background task ID or a queued/start response is not completion. Do not create a second agent to launch or watch it.\n\n"
         } else {
             text += "Launch the recipe once through this Codex host's native command/execution tool with its background or session support. Use a target-first visible label such as `Opus 5.5 via Claude Code · review the requested change` when the tool supports a description. Retain the real returned job/session handle and output path. Use the host's native completion/wait mechanism (for exec_command sessions, write_stdin waits) until the process exits, then read the captured output and result file. Do not invent Claude workflow API calls or use another model to wait for this process.\n\n"
         }

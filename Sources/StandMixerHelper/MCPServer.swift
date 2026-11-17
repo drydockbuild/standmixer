@@ -84,7 +84,7 @@ final class StandMixerMCPServer: @unchecked Sendable {
     }
 
     var tools: [[String: Any]] {
-        let actions = ["state", "saveDraft", "savePreset", "deletePreset", "preview", "apply", "previewUninstall", "uninstall", "previewRestore", "restore", "installMac", "openWeb", "openMac", "checkUpdates", "checkClaudeConnection", "connectClaude"]
+        let actions = ["state", "saveDraft", "savePreset", "deletePreset", "preview", "apply", "previewUninstall", "uninstall", "previewRestore", "restore", "installMac", "openWeb", "openMac", "checkUpdates", "checkClaudeConnection", "connectClaude", "logoutClaude"]
         return [
             ["name": "open_standmixer", "title": "Open StandMixer", "description": "Open StandMixer routing settings inside Codex. Reads saved configuration without starting inference or changing routing.",
              "icons": Self.icons,
@@ -92,7 +92,7 @@ final class StandMixerMCPServer: @unchecked Sendable {
              "annotations": ["readOnlyHint": true, "destructiveHint": false, "openWorldHint": false],
              "_meta": ["ui": ["resourceUri": assets.resourceURI, "visibility": ["model", "app"]],
                        "openai/ui": ["entrypoints": [["type": "thread"], ["type": "global"]], "preferredModelDisplayMode": "fullscreen"]]],
-            ["name": "standmixer_action", "title": "StandMixer panel action", "description": "Routing settings, optional local app installation, and explicit Connect Claude for Codex. Settings never run models or require login. Configured Codex-to-Claude routes may check public CLI sign-in status automatically; opening the official browser login requires an explicit request. Apply, uninstall, and restore require a stored reviewed preview ID; paths and shell commands are never accepted.",
+            ["name": "standmixer_action", "title": "StandMixer panel action", "description": "Routing settings, optional local app installation, and explicit Claude connection controls for Codex. Settings never run models or require login. Configured Codex-to-Claude routes may check public CLI sign-in status automatically; opening the official browser login or logging out requires an explicit request. Logout signs out the shared Claude Code profile. Apply, uninstall, and restore require a stored reviewed preview ID; paths and shell commands are never accepted.",
              "inputSchema": ["type": "object", "required": ["action"], "additionalProperties": false,
                              "properties": ["action": ["type": "string", "enum": actions], "configuration": ["type": "object"],
                                             "platforms": ["type": "array", "items": ["type": "string", "enum": ["codex", "claude"]], "uniqueItems": true],
@@ -168,7 +168,7 @@ final class StandMixerMCPStdio: @unchecked Sendable {
             complete(key)
         }
         operations[key] = task
-        if action == "connectClaude" || action == "checkClaudeConnection" { connectionOperations.insert(key) }
+        if ["connectClaude", "checkClaudeConnection", "logoutClaude"].contains(action ?? "") { connectionOperations.insert(key) }
         lock.unlock()
     }
     private func complete(_ key: String) { lock.lock(); operations.removeValue(forKey: key); connectionOperations.remove(key); lock.unlock() }

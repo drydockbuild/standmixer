@@ -37,7 +37,7 @@ final class SharedWorkerTests: XCTestCase {
             }
         }
         let codex = workers(optimized).filter { $0.path.hasPrefix(service.codexHome.path + "/") }.map { URL(fileURLWithPath: $0.path).lastPathComponent }
-        XCTAssertEqual(Set(codex), ["standmixer-gpt-6-astra-max.toml", "standmixer-gpt-6-astra-xhigh.toml", "standmixer-gpt-6-astra-medium.toml", "standmixer-gpt-6.1-sol-max.toml", "standmixer-gpt-6-luna-medium.toml"])
+        XCTAssertEqual(Set(codex), ["standmixer-gpt-6.2-astra-max.toml", "standmixer-gpt-6.2-astra-xhigh.toml", "standmixer-gpt-6.2-astra-medium.toml", "standmixer-gpt-6.2-sol-max.toml", "standmixer-gpt-6-luna-medium.toml"])
     }
 
     func testRoleOnlyChangeUpdatesRoutingWithoutRewritingSharedWorkersOrSettings() throws {
@@ -63,14 +63,14 @@ final class SharedWorkerTests: XCTestCase {
             $0.judgeModelID = $0.modelID
         }
         let preview = try service.preview(configuration: configuration, platforms: [.codex])
-        let matching = workers(preview).filter { $0.path.hasSuffix("standmixer-gpt-6-astra-auto.toml") }
+        let matching = workers(preview).filter { $0.path.hasSuffix("standmixer-gpt-6.2-astra-auto.toml") }
         XCTAssertEqual(matching.count, 1)
         XCTAssertFalse(matching[0].after.contains("compare-only"), "Judge purpose belongs to the fresh task brief, not the reusable worker.")
         let policy = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("AGENTS.md") })
         XCTAssertTrue(policy.after.contains("launch all 3 workers concurrently as independent instances"))
         XCTAssertTrue(policy.after.contains("including repeated slots using the same definition"))
-        XCTAssertTrue(policy.after.contains("launch a fresh `standmixer-gpt-6-astra-auto` instance with a compare-only brief"))
-        XCTAssertEqual(policy.after.components(separatedBy: "`standmixer-gpt-6-astra-auto`").count - 1, 12, "Design, UI implementation, and UI review each use three slots and a judge from one Auto definition.")
+        XCTAssertTrue(policy.after.contains("launch a fresh `standmixer-gpt-6.2-astra-auto` instance with a compare-only brief"))
+        XCTAssertEqual(policy.after.components(separatedBy: "`standmixer-gpt-6.2-astra-auto`").count - 1, 12, "Design, UI implementation, and UI review each use three slots and a judge from one Auto definition.")
         XCTAssertEqual(configuration.profile(for: .codex)?.route(for: .ui)?.additionalAgents.count, 2)
     }
 
@@ -80,14 +80,14 @@ final class SharedWorkerTests: XCTestCase {
         auto.value = "ultra"; auto.minimum = "xhigh"
         var range = EffortPolicy.range(minimum: "low", maximum: "high")
         range.value = "ultra"
-        edit(&configuration, .planning) { $0.modelID = "gpt-6-astra"; $0.effort = auto }
-        edit(&configuration, .ui) { $0.modelID = "gpt-6-astra"; $0.effort = .fixed("medium") }
+        edit(&configuration, .planning) { $0.modelID = "gpt-6.2-astra"; $0.effort = auto }
+        edit(&configuration, .ui) { $0.modelID = "gpt-6.2-astra"; $0.effort = .fixed("medium") }
         edit(&configuration, .algorithms) { $0.inheritsEffort = false; $0.effort = range }
-        edit(&configuration, .review) { $0.modelID = "gpt-6-astra"; $0.effort = .range(minimum: "low", maximum: "high") }
+        edit(&configuration, .review) { $0.modelID = "gpt-6.2-astra"; $0.effort = .range(minimum: "low", maximum: "high") }
         let preview = try service.preview(configuration: configuration, platforms: [.codex])
-        let astra = workers(preview).filter { $0.path.contains("standmixer-gpt-6-astra-") }
+        let astra = workers(preview).filter { $0.path.contains("standmixer-gpt-6.2-astra-") }
         let names = astra.map { URL(fileURLWithPath: $0.path).lastPathComponent }
-        for name in ["standmixer-gpt-6-astra-auto.toml", "standmixer-gpt-6-astra-medium.toml", "standmixer-gpt-6-astra-range-low-high.toml"] {
+        for name in ["standmixer-gpt-6.2-astra-auto.toml", "standmixer-gpt-6.2-astra-medium.toml", "standmixer-gpt-6.2-astra-range-low-high.toml"] {
             XCTAssertEqual(names.filter { $0 == name }.count, 1)
         }
         XCTAssertFalse(try XCTUnwrap(astra.first { $0.path.contains("-auto.") }).after.contains("model_reasoning_effort ="))
@@ -125,8 +125,8 @@ final class SharedWorkerTests: XCTestCase {
         edit(&configuration, .securityReview) { $0.additionalAgents = [.init(modelID: "claude-opus-5-5", effort: .auto)] }
         edit(&configuration, .routineCoding, platform: .claude) { $0.effort = .fixed("ultra") }
         let preview = try service.preview(configuration: configuration)
-        let native = try XCTUnwrap(workers(preview).first { $0.path.hasSuffix(".codex/agents/standmixer-gpt-6-astra-ultra.toml") })
-        XCTAssertTrue(native.after.contains("model = \"gpt-6-astra\""))
+        let native = try XCTUnwrap(workers(preview).first { $0.path.hasSuffix(".codex/agents/standmixer-gpt-6.2-astra-ultra.toml") })
+        XCTAssertTrue(native.after.contains("model = \"gpt-6.2-astra\""))
         XCTAssertTrue(native.after.contains("model_reasoning_effort = \"ultra\""))
         XCTAssertFalse(native.after.contains("Do not recursively invoke this same worker"))
         let claudeTarget = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(".agents/skills/standmixer/references/external-workers.md") })
@@ -137,9 +137,9 @@ final class SharedWorkerTests: XCTestCase {
         XCTAssertTrue(claudeTarget.after.contains("Opus 5.5 via Claude Code"))
         let codexTarget = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(".claude/skills/standmixer/references/external-workers.md") })
         XCTAssertFalse(codexTarget.after.contains("model: claude-haiku-5-5"))
-        XCTAssertTrue(codexTarget.after.contains("-m 'gpt-6.1-sol'"))
+        XCTAssertTrue(codexTarget.after.contains("-m 'gpt-6.2-sol'"))
         XCTAssertTrue(codexTarget.after.contains("model_reasoning_effort=\"ultra\""))
-        XCTAssertTrue(codexTarget.after.contains("Sol 6.1 via Codex"))
+        XCTAssertTrue(codexTarget.after.contains("Sol 6.2 via Codex"))
         XCTAssertTrue(codexTarget.after.contains("Background launch is not completion"))
     }
 
@@ -175,7 +175,7 @@ final class SharedWorkerTests: XCTestCase {
     func testNewSharedWorkerCollisionAndCandidateSymlinkCannotOverwriteUserData() throws {
         let directory = service.codexHome.appendingPathComponent("agents")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let collision = directory.appendingPathComponent("standmixer-gpt-6-astra-max.toml")
+        let collision = directory.appendingPathComponent("standmixer-gpt-6.2-astra-max.toml")
         try "Unowned exact-name collision".write(to: collision, atomically: true, encoding: .utf8)
         XCTAssertThrowsError(try service.preview(configuration: .defaults, platforms: [.codex]))
         XCTAssertEqual(try String(contentsOf: collision, encoding: .utf8), "Unowned exact-name collision")

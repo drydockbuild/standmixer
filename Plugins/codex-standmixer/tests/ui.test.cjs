@@ -12,12 +12,12 @@ const clone = plain;
 const auto = {mode:'auto', value:'high', minimum:'low', maximum:'high'};
 const categories = ['coordinator','planning','ui','implementation','algorithms','review','mechanical'];
 const models = [
-  ['gpt-6.1-sol','Sol 6.1','codex'], ['gpt-6-astra','Astra 6','codex'],
+  ['gpt-6.2-sol','Sol 6.2','codex'], ['gpt-6.2-astra','Astra 6.2','codex'],
   ['gpt-6.1-terra','Terra 6.1','codex'], ['gpt-6-luna','Luna 6','codex'],
   ['claude-opus-5-5','Opus 5.5','claude'], ['claude-fable-5-1','Fable 5.1','claude'], ['claude-fable-5-2','Fable 5.2','claude'],
   ['claude-sonnet-5-5','Sonnet 5.5','claude'], ['claude-haiku-5-5','Haiku 5.5','claude'],
 ].map(([id,label,platform])=>({id,label,platform,supportedEfforts:platform==='codex'?['low','medium','high','xhigh','max','ultra']:['low','medium','high','xhigh','max'],isDiscovered:false}));
-function configuration(){return {customModels:[],enabledPlatforms:['codex','claude'],profiles:['codex','claude'].map(platform=>({platform,routes:categories.map(category=>({category,modelID:category==='coordinator'?'auto':platform==='codex'?'gpt-6.1-sol':'claude-opus-5-5',effort:clone(auto),additionalAgents:[],resultMode:'coordinator'}))}))};}
+function configuration(){return {customModels:[],enabledPlatforms:['codex','claude'],profiles:['codex','claude'].map(platform=>({platform,routes:categories.map(category=>({category,modelID:category==='coordinator'?'auto':platform==='codex'?'gpt-6.2-sol':'claude-opus-5-5',effort:clone(auto),additionalAgents:[],resultMode:'coordinator'}))}))};}
 function data(){const config=configuration();const presets=['fast','optimized','high'].map(id=>({id,title:'StandMixer '+id,configuration:clone(config)}));presets[0].configuration.profiles[0].routes[6].modelID='gpt-6-luna';presets[2].configuration.profiles[0].routes[2].additionalAgents=[{id:'0c471eef-8bcc-4975-97ca-89a83bbb82de',modelID:'claude-fable-5-1',effort:clone(auto)}];return {configuration:config,canConnectClaude:false,hasSavedDraft:false,previousDraft:clone(config),enabledPlatforms:['codex','claude'],preferredPlatforms:['codex','claude'],availablePlatforms:['codex','claude'],presets,catalog:clone(models),connections:[],installation:{state:'notInstalled',summary:'Nothing applied',hasInstallation:false,installedPlatforms:[]},savedPresets:[],nativeSettings:[],canRestore:false,notes:[]};}
 function preview(kind='apply'){return {id:'review-exact-id',kind,expiresAt:new Date(Date.now()+3600000).toISOString(),changedFiles:1,conflicts:[],changes:[{path:'/fixture/.codex/config.toml',reason:'Update saved model',isChanged:true,isDeletion:false,diff:{addedLineCount:1,removedLineCount:1,isCoarse:false,hasFinalNewlineChange:false,hunks:[{oldStart:1,oldCount:1,newStart:1,newCount:1,lines:[{kind:'removal',text:'model = "old"',oldLineNumber:1},{kind:'addition',text:'model = "new"',newLineNumber:1}]}]}}]};}
 function load(window,overrides={}){const nodes=new Map();const node=id=>{if(!nodes.has(id))nodes.set(id,{innerHTML:'',textContent:'',dataset:{},setAttribute(){},querySelectorAll(){return []},getBoundingClientRect(){return {height:680}}});return nodes.get(id);};const document={getElementById:node,querySelectorAll:()=>[],querySelector:()=>null,documentElement:{dataset:{},style:{setProperty(){}}}};const context={module:{exports:{}},console,URLSearchParams,AbortController,setTimeout,clearTimeout,crypto:webcrypto,FormData:class {constructor(form){this.entries=Object.entries(form.values||{});}[Symbol.iterator](){return this.entries[Symbol.iterator]();}},window,document,requestAnimationFrame:()=>0,...overrides};vm.runInNewContext(script,context,{filename:'standmixer-inline.js'});return {api:context.module.exports,nodes,document};}
@@ -66,10 +66,10 @@ test('factory identity ignores UUIDs and inactive effort fields, but keeps model
   const {api}=ready(),before=configuration(),after=clone(before);
   after.profiles[0].routes[0].effort.value='ultra';
   assert.equal(api.recipeKey(before,['codex','claude']),api.recipeKey(after,['claude','codex']));
-  const r=after.profiles[0].routes[1];r.additionalAgents=[{id:'one',modelID:'gpt-6-astra',effort:clone(auto)}];
+  const r=after.profiles[0].routes[1];r.additionalAgents=[{id:'one',modelID:'gpt-6.2-astra',effort:clone(auto)}];
   const another=clone(after);another.profiles[0].routes[1].additionalAgents[0].id='two';
   assert.equal(api.recipeKey(after,['codex']),api.recipeKey(another,['codex']));
-  another.profiles[0].routes[1].modelID='gpt-6-astra';another.profiles[0].routes[1].additionalAgents[0].modelID='gpt-6.1-sol';
+  another.profiles[0].routes[1].modelID='gpt-6.2-astra';another.profiles[0].routes[1].additionalAgents[0].modelID='gpt-6.2-sol';
   assert.notEqual(api.recipeKey(after,['codex']),api.recipeKey(another,['codex']));
 });
 test('unknown current settings never produce a Changed badge',()=>{
@@ -81,7 +81,7 @@ test('unknown current settings never produce a Changed badge',()=>{
 test('only known native coordinator changes are compared; legacy inspection is ignored',()=>{
   const {api}=ready();api.state.data.nativeSettings=[{platform:'codex',status:'known',modelID:'gpt-6-luna',sourcePath:'/fixture/config.toml',detail:'Saved defaults only'}];
   assert(!api.assignment('codex','coordinator').includes('change-badge'));
-  api.state.draft.profiles[0].routes[0].modelID='gpt-6.1-sol';
+  api.state.draft.profiles[0].routes[0].modelID='gpt-6.2-sol';
   assert(api.assignment('codex','coordinator').includes('change-badge'));
   api.state.inspection={expiresAt:'2020-01-01T00:00:00Z',reports:[{platform:'codex',status:'complete',routes:[{category:'planning',modelID:'gpt-6-luna'}]}]};
   assert.equal(api.observed('codex','planning'),null);
@@ -109,7 +109,7 @@ test('coordinator editor rejects a cross-provider model and team expansion',()=>
 test('inline team and result controls preserve ordered workers and reset a one-agent result',()=>{
   const {api}=ready();const edit=(field,value)=>api.editField({dataset:{platform:'codex',task:'ui',field,index:'0'},value});
   edit('team','4');const r=api.state.draft.profiles[0].routes[2];assert.equal(r.additionalAgents.length,3);assert.equal(new Set(r.additionalAgents.map(x=>x.id)).size,3);
-  edit('result','ai');assert.equal(r.judgeModelID,'gpt-6.1-sol');
+  edit('result','ai');assert.equal(r.judgeModelID,'gpt-6.2-sol');
   edit('team','1');assert.equal(r.resultMode,'coordinator');assert.equal(r.judgeModelID,undefined);assert.equal(api.state.dirty,false);
 });
 test('model replacement translates unsupported fixed effort to a supported level',()=>{
@@ -385,7 +385,7 @@ test('Claude dialog cancellation and MCP panel teardown cancel the matching back
   }
 });
 test('Claude check and login have bounded deadlines that cancel the backend on timeout',async()=>{
-  for(const [action,timeout] of [['checkClaudeConnection',20000],['connectClaude',350000]]){
+  for(const [action,timeout] of [['checkClaudeConnection',20000],['connectClaude',350000],['logoutClaude',60000]]){
     let timer;const messages=[];
     const {api}=load(undefined,{setTimeout:(callback,milliseconds)=>{timer={callback,milliseconds};return 1;},clearTimeout(){}});
     const win={location:{hash:'',hostname:''},parent:{postMessage:m=>messages.push(plain(m))},addEventListener(){},removeEventListener(){}};
@@ -407,7 +407,7 @@ test('automatic connection triggers resolve every Codex worker role through the 
     assert(api.introducesClaudeForCodex(before,after),role);
     assert(!api.introducesClaudeForCodex(after,after),role);
   }
-  const reverse=clone(before);reverse.profiles[1].routes[1].modelID='gpt-6-astra';
+  const reverse=clone(before);reverse.profiles[1].routes[1].modelID='gpt-6.2-astra';
   assert(!api.introducesClaudeForCodex(before,reverse));
   const unknown=clone(before);unknown.profiles[0].routes[1].modelID='claude-looking-unknown';
   assert(!api.introducesClaudeForCodex(before,unknown));
@@ -436,7 +436,7 @@ test('connected checks stay quiet and unknown checks show a problem without blam
     const {api,nodes}=connectionReady(),calls=[];
     api.setBridge({action:async request=>{calls.push(request.action);return request.action==='state'?{ok:true,state:{...data(),canConnectClaude:true}}:{ok:true,claudeConnection:{state:status,detail:'Fixture'}};}});
     api.render();await api.handleAction('sources');await api.handleAction('closeModal');await api.handleAction('connections');
-    api.editField({dataset:{platform:'claude',task:'planning',field:'model',index:'0'},value:'gpt-6-astra'});
+    api.editField({dataset:{platform:'claude',task:'planning',field:'model',index:'0'},value:'gpt-6.2-astra'});
     assert.deepEqual(calls,['state']);
     api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'claude-opus-5-5'});
     await api.state.claudeQuietPromise;
@@ -493,16 +493,16 @@ test('successful optional sign-in resumes only the user-requested preview on Don
 test('legacy inspection and account payloads never appear or affect current comparisons',async()=>{
   for(const status of ['complete','partial']){
     const {api,nodes}=ready(),incoming=data();
-    incoming.nativeSettings=[{platform:'codex',status:'known',modelID:'gpt-6.1-sol',sourcePath:'/fixture/config.toml',detail:'Saved global defaults'}];
-    incoming.inspection={expiresAt:new Date(Date.now()+60000).toISOString(),reports:[{platform:'codex',status,summary:'Legacy report',routes:[{category:'planning',modelID:'gpt-6-luna',scope:'usual',evidence:[],uncertainties:['Legacy uncertainty']},{category:'coordinator',modelID:'gpt-6-astra',scope:'current',evidence:[],uncertainties:[]}]}]};
+    incoming.nativeSettings=[{platform:'codex',status:'known',modelID:'gpt-6.2-sol',sourcePath:'/fixture/config.toml',detail:'Saved global defaults'}];
+    incoming.inspection={expiresAt:new Date(Date.now()+60000).toISOString(),reports:[{platform:'codex',status,summary:'Legacy report',routes:[{category:'planning',modelID:'gpt-6-luna',scope:'usual',evidence:[],uncertainties:['Legacy uncertainty']},{category:'coordinator',modelID:'gpt-6.2-astra',scope:'current',evidence:[],uncertainties:[]}]}]};
     incoming.accounts={providers:[{platform:'codex',status:'signedIn',email:'legacy-account@example.test'}]};
     api.acceptState(incoming);api.state.inspection=incoming.inspection;
-    assert.equal(api.observed('codex','planning'),null);assert.equal(api.observed('codex','coordinator').modelID,'gpt-6.1-sol');
+    assert.equal(api.observed('codex','planning'),null);assert.equal(api.observed('codex','coordinator').modelID,'gpt-6.2-sol');
     assert(!api.assignment('codex','planning').includes('change-badge'));assert(!api.assignment('codex','coordinator').includes('change-badge'));
     await api.handleAction('sources');assert(!/Legacy|legacy-account|Preference observations|CLI account/.test(nodes.get('modal-root').innerHTML));
-    const applied=configuration();applied.profiles[0].routes[1].modelID='gpt-6-astra';
+    const applied=configuration();applied.profiles[0].routes[1].modelID='gpt-6.2-astra';
     api.state.data.installation={state:'applied',appliedConfiguration:applied,installedPlatforms:['codex']};
-    assert.equal(api.observed('codex','planning').modelID,'gpt-6-astra');
+    assert.equal(api.observed('codex','planning').modelID,'gpt-6.2-astra');
     api.state.data.installation.state='drifted';assert.equal(api.observed('codex','planning'),null);
   }
 });
@@ -528,19 +528,19 @@ test('Controller Auto preserves the native-model distinction and hides effort co
   api.state.advanced=true;const advanced=api.assignment('codex','coordinator',true);
   assert.match(advanced,/<option value="auto" selected>Auto · Current model<\/option>/);assert(!advanced.includes('data-field="effort"'));assert(!advanced.includes('data-field="team"'));
   api.editField({dataset:{platform:'codex',task:'coordinator',field:'effort',index:'0'},value:'ultra'});assert.equal(r.effort.mode,'auto');
-  api.editField({dataset:{platform:'codex',task:'coordinator',field:'model',index:'0'},value:'gpt-6.1-sol'});
-  assert.equal(r.modelID,'gpt-6.1-sol');assert(api.assignment('codex','coordinator',true).includes('data-field="effort"'));
+  api.editField({dataset:{platform:'codex',task:'coordinator',field:'model',index:'0'},value:'gpt-6.2-sol'});
+  assert.equal(r.modelID,'gpt-6.2-sol');assert(api.assignment('codex','coordinator',true).includes('data-field="effort"'));
 });
 test('Controller Auto compares known StandMixer policy and cannot be selected for workers or judges',()=>{
-  const {api}=ready(),applied=configuration(),r=api.state.draft.profiles[0].routes[0];r.modelID='auto';applied.profiles[0].routes[0].modelID='gpt-6.1-sol';
+  const {api}=ready(),applied=configuration(),r=api.state.draft.profiles[0].routes[0];r.modelID='auto';applied.profiles[0].routes[0].modelID='gpt-6.2-sol';
   api.state.data.installation={state:'applied',appliedConfiguration:applied,installedPlatforms:['codex']};
   assert(api.assignment('codex','coordinator').includes('change-badge'));
   applied.profiles[0].routes[0].modelID='auto';assert(!api.assignment('codex','coordinator').includes('change-badge'));
   const worker=api.state.draft.profiles[0].routes[2];
-  api.editField({dataset:{platform:'codex',task:'ui',field:'model',index:'0'},value:'auto'});assert.equal(worker.modelID,'gpt-6.1-sol');
+  api.editField({dataset:{platform:'codex',task:'ui',field:'model',index:'0'},value:'auto'});assert.equal(worker.modelID,'gpt-6.2-sol');
   api.editField({dataset:{platform:'codex',task:'ui',field:'team'},value:'2'});
-  api.editField({dataset:{platform:'codex',task:'ui',field:'result'},value:'ai'});assert.equal(worker.judgeModelID,'gpt-6.1-sol');
-  api.editField({dataset:{platform:'codex',task:'ui',field:'judge'},value:'auto'});assert.equal(worker.judgeModelID,'gpt-6.1-sol');
+  api.editField({dataset:{platform:'codex',task:'ui',field:'result'},value:'ai'});assert.equal(worker.judgeModelID,'gpt-6.2-sol');
+  api.editField({dataset:{platform:'codex',task:'ui',field:'judge'},value:'auto'});assert.equal(worker.judgeModelID,'gpt-6.2-sol');
 });
 test('optional Mac build is available in Interface and Sources without locking settings',async()=>{
   const {api,nodes}=ready(),calls=[];let finish;
@@ -566,17 +566,17 @@ test('saved default and CLI source fields are escaped, with unavailable defaults
   assert.match(shown,/>Unknown</);assert(!shown.includes('Luna 6'));assert.equal(api.observed('codex','coordinator'),null);
 });
 test('team mode distinguishes lead review from independent passes without changing worker order',()=>{
-  const {api}=ready(),route=api.state.draft.profiles[0].routes[2];route.additionalAgents=[{id:'second',modelID:'gpt-6-astra',effort:clone(auto)}];
-  const legacy=api.routeKey(route);api.editField({dataset:{platform:'codex',task:'ui',field:'teamMode'},value:'leadReview'});assert.notEqual(api.routeKey(route),legacy);assert.equal(route.modelID,'gpt-6.1-sol');assert.equal(route.additionalAgents[0].modelID,'gpt-6-astra');api.state.advanced=true;assert.match(api.assignment('codex','ui',true),/Lead/);assert.match(api.assignment('codex','ui',true),/Worker 2/);
+  const {api}=ready(),route=api.state.draft.profiles[0].routes[2];route.additionalAgents=[{id:'second',modelID:'gpt-6.2-astra',effort:clone(auto)}];
+  const legacy=api.routeKey(route);api.editField({dataset:{platform:'codex',task:'ui',field:'teamMode'},value:'leadReview'});assert.notEqual(api.routeKey(route),legacy);assert.equal(route.modelID,'gpt-6.2-sol');assert.equal(route.additionalAgents[0].modelID,'gpt-6.2-astra');api.state.advanced=true;assert.match(api.assignment('codex','ui',true),/Lead/);assert.match(api.assignment('codex','ui',true),/Worker 2/);
 });
 
 test('Applied badge describes the displayed semantic recipe including enabled platforms and team mode',()=>{
   const {api}=ready(),applied=clone(api.state.draft);api.state.data.installation={state:'applied',appliedConfiguration:applied,installedPlatforms:['claude','codex']};
   assert.equal(api.installationLabel(),'Applied');
-  api.state.draft.profiles[0].routes[1].modelID='gpt-6-astra';assert.equal(api.installationLabel(),'Unapplied changes');
+  api.state.draft.profiles[0].routes[1].modelID='gpt-6.2-astra';assert.equal(api.installationLabel(),'Unapplied changes');
   api.state.draft=clone(applied);api.state.draft.profiles[0].routes[0].effort.value='ultra';assert.equal(api.installationLabel(),'Applied');
   api.state.platforms=['codex'];assert.equal(api.installationLabel(),'Unapplied changes');api.state.platforms=['codex','claude'];
-  for(const config of [applied,api.state.draft])config.profiles[0].routes[2].additionalAgents=[{id:crypto.randomUUID(),modelID:'gpt-6-astra',effort:clone(auto)}];
+  for(const config of [applied,api.state.draft])config.profiles[0].routes[2].additionalAgents=[{id:crypto.randomUUID(),modelID:'gpt-6.2-astra',effort:clone(auto)}];
   assert.equal(api.installationLabel(),'Applied');api.state.draft.profiles[0].routes[2].teamMode='leadReview';assert.equal(api.installationLabel(),'Unapplied changes');
   api.state.data.installation.state='drifted';assert.equal(api.installationLabel(),'Settings changed');
   api.state.data.installation={state:'applied',installedPlatforms:['codex']};assert.equal(api.installationLabel(),'No preset applied');
@@ -587,13 +587,13 @@ test('Edit stages one row, Cancel restores the entry snapshot, and native review
   const before=plain(api.state.draft),applied=clone(before);applied.profiles[0].routes[3].modelID='gpt-6-luna';api.state.data.installation={state:'applied',appliedConfiguration:applied,installedPlatforms:['codex','claude']};api.setBridge({ready:false,action:async request=>{calls.push(plain(request));return {ok:true,state:data()};}});
   await api.handleAction('edit');api.render();assert(api.state.advanced);assert(nodes.get('root').innerHTML.includes('data-action="saveEdit"'));assert(!api.sidebar().includes('Advanced'));assert(!nodes.get('root').innerHTML.includes('data-action="saveDraft"'));assert.equal((api.matrix().match(/data-field="model"/g)||[]).length,2);await api.handleAction('editRow',{task:'implementation'});assert.equal((api.matrix().match(/class="row-editor"/g)||[]).length,1);
   const marker=()=>api.assignment('codex','implementation').includes('>Edited</span>');assert.equal(marker(),false);assert(!api.assignment('codex','implementation').includes('data-action="compare"'));
-  api.editField({dataset:{platform:'codex',task:'implementation',field:'model',index:'0'},value:'gpt-6-astra'});assert(marker());assert.match(api.assignment('codex','implementation',true),/class="edited-control"/);api.editField({dataset:{platform:'codex',task:'implementation',field:'model',index:'0'},value:'gpt-6.1-sol'});assert.equal(marker(),false);api.editField({dataset:{platform:'codex',task:'implementation',field:'effort',index:'0'},value:'low'});assert(marker());api.editField({dataset:{platform:'codex',task:'implementation',field:'effort',index:'0'},value:'auto'});assert.equal(marker(),false);await api.handleAction('removeCustom',{id:'unused-custom'});await api.prepare();assert.equal(calls.length,0);
+  api.editField({dataset:{platform:'codex',task:'implementation',field:'model',index:'0'},value:'gpt-6.2-astra'});assert(marker());assert.match(api.assignment('codex','implementation',true),/class="edited-control"/);api.editField({dataset:{platform:'codex',task:'implementation',field:'model',index:'0'},value:'gpt-6.2-sol'});assert.equal(marker(),false);api.editField({dataset:{platform:'codex',task:'implementation',field:'effort',index:'0'},value:'low'});assert(marker());api.editField({dataset:{platform:'codex',task:'implementation',field:'effort',index:'0'},value:'auto'});assert.equal(marker(),false);await api.handleAction('removeCustom',{id:'unused-custom'});await api.prepare();assert.equal(calls.length,0);
   await api.handleAction('cancelEdit');assert.deepEqual(plain(api.state.draft),before);assert.equal(api.state.selected,'high');assert.equal(api.state.dirty,true);assert.equal(api.state.advanced,false);assert.equal(calls.length,0);assert(api.assignment('codex','implementation').includes('data-action="compare"'));api.beginEdit();assert.equal(marker(),false);api.cancelEdit();
 });
 test('Save commits only the staged draft once, while a failed Save preserves editing',async()=>{
   const {api}=ready(),calls=[];let fail=true;api.setBridge({ready:false,action:async request=>{calls.push(plain(request));if(fail)throw Error('Draft could not be saved.');const value=data();value.configuration=plain(request.configuration);return {ok:true,state:value};}});
-  await api.handleAction('edit');api.editField({dataset:{platform:'codex',task:'implementation',field:'model',index:'0'},value:'gpt-6-astra'});
-  await api.handleAction('saveEdit');assert(api.state.advanced);assert(api.state.editSnapshot);assert.equal(api.state.draft.profiles[0].routes[3].modelID,'gpt-6-astra');
+  await api.handleAction('edit');api.editField({dataset:{platform:'codex',task:'implementation',field:'model',index:'0'},value:'gpt-6.2-astra'});
+  await api.handleAction('saveEdit');assert(api.state.advanced);assert(api.state.editSnapshot);assert.equal(api.state.draft.profiles[0].routes[3].modelID,'gpt-6.2-astra');
   fail=false;await api.handleAction('saveEdit');assert.equal(api.state.advanced,false);assert.equal(api.state.editSnapshot,null);assert.deepEqual(calls.map(x=>x.action),['saveDraft','saveDraft']);await api.handleAction('saveEdit');assert.equal(calls.length,2);
 });
 
@@ -605,7 +605,7 @@ test('StandMixer has a shared mixer mark and explicit Web/Mac interface choices'
 test('explicit interface launch preserves an unsaved Edit draft and uses host opening only after validation',async()=>{
   const {api}=ready(),calls=[],links=[],url='http://127.0.0.1:54321/#token='+'a'.repeat(43);
   api.setBridge({action:async request=>{calls.push(plain(request));return request.action==='openWeb'?{ok:true,web:{url}}:{ok:true,result:{message:'Opened Mac.'}};},rpc:async(method,args)=>{links.push({method,...args});return {};}});
-  api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6-astra'});const draft=plain(api.state.draft);
+  api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6.2-astra'});const draft=plain(api.state.draft);
   await api.openInterface('web');await api.openInterface('mac');assert.deepEqual(calls,[{action:'openWeb'},{action:'openMac'}]);assert.deepEqual(links,[{method:'ui/open-link',url}]);assert.equal(api.state.advanced,true);assert.deepEqual(plain(api.state.draft),draft);assert(api.state.editSnapshot);
 });
 test('interface opening refuses remote or malformed URLs and respects host denial without a fallback launch',async()=>{
@@ -623,8 +623,8 @@ test('draft Undo and Redo are local, invalidate review, and dirty clears on retu
 });
 test('Undo survives Edit Save and saves only draft state when reversing a saved change',async()=>{
   const {api}=ready(),calls=[],saved=data();api.setBridge({action:async request=>{calls.push(plain(request));if(request.action==='saveDraft'){saved.configuration=clone(request.configuration);saved.enabledPlatforms=[...request.platforms];saved.hasSavedDraft=true;}return {ok:true,state:clone(saved),result:{message:'Draft saved'}};}});
-  api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6-astra'});assert(api.assignment('codex','planning').includes('>Edited</span>'));await api.travelDraft();assert(!api.assignment('codex','planning').includes('>Edited</span>'));await api.travelDraft(true);assert(api.assignment('codex','planning').includes('>Edited</span>'));await api.saveEdit();assert(!api.assignment('codex','planning').includes('>Edited</span>'));assert.equal(api.state.undoStack.length,1);assert.equal(api.state.dirty,false);
-  await api.travelDraft();assert.equal(api.state.draft.profiles[0].routes[1].modelID,'gpt-6.1-sol');assert.equal(api.state.dirty,false);await api.travelDraft(true);assert.equal(api.state.draft.profiles[0].routes[1].modelID,'gpt-6-astra');assert.deepEqual(calls.map(x=>x.action),['saveDraft','saveDraft','saveDraft']);
+  api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6.2-astra'});assert(api.assignment('codex','planning').includes('>Edited</span>'));await api.travelDraft();assert(!api.assignment('codex','planning').includes('>Edited</span>'));await api.travelDraft(true);assert(api.assignment('codex','planning').includes('>Edited</span>'));await api.saveEdit();assert(!api.assignment('codex','planning').includes('>Edited</span>'));assert.equal(api.state.undoStack.length,1);assert.equal(api.state.dirty,false);
+  await api.travelDraft();assert.equal(api.state.draft.profiles[0].routes[1].modelID,'gpt-6.2-sol');assert.equal(api.state.dirty,false);await api.travelDraft(true);assert.equal(api.state.draft.profiles[0].routes[1].modelID,'gpt-6.2-astra');assert.deepEqual(calls.map(x=>x.action),['saveDraft','saveDraft','saveDraft']);
 });
 test('failed saved Undo retains the current draft/history, and metadata refresh preserves Undo',async()=>{
   const {api}=ready(),saved=data();let fail=false;api.setBridge({action:async request=>{if(request.action==='saveDraft'){if(fail)throw Error('Draft write failed');saved.configuration=clone(request.configuration);saved.enabledPlatforms=[...request.platforms];saved.hasSavedDraft=true;}return {ok:true,state:clone(saved)};}});
@@ -632,8 +632,8 @@ test('failed saved Undo retains the current draft/history, and metadata refresh 
   await api.handleAction('connections');assert.equal(api.state.undoStack.length,1);fail=false;await api.travelDraft();assert.equal(api.state.dirty,false);
 });
 test('Edit Cancel restores entry history, a new edit clears Redo, and Apply clears both stacks',async()=>{
-  const {api}=ready();api.selectConfiguration(api.state.data.presets[0].configuration,'fast');api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6-astra'});await api.travelDraft();api.cancelEdit();assert.equal(api.state.undoStack.length,1);assert.equal(api.state.redoStack.length,0);assert.equal(api.state.draft.profiles[0].routes[6].modelID,'gpt-6-luna');
-  await api.travelDraft();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6-astra'});assert.equal(api.state.redoStack.length,0);api.setBridge({action:async request=>request.action==='preview'?{ok:true,preview:preview()}:{ok:true,state:data(),result:{message:'Applied'}}});await api.prepare();await api.applyReview();assert.equal(api.state.undoStack.length,0);assert.equal(api.state.redoStack.length,0);
+  const {api}=ready();api.selectConfiguration(api.state.data.presets[0].configuration,'fast');api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6.2-astra'});await api.travelDraft();api.cancelEdit();assert.equal(api.state.undoStack.length,1);assert.equal(api.state.redoStack.length,0);assert.equal(api.state.draft.profiles[0].routes[6].modelID,'gpt-6-luna');
+  await api.travelDraft();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6.2-astra'});assert.equal(api.state.redoStack.length,0);api.setBridge({action:async request=>request.action==='preview'?{ok:true,preview:preview()}:{ok:true,state:data(),result:{message:'Applied'}}});await api.prepare();await api.applyReview();assert.equal(api.state.undoStack.length,0);assert.equal(api.state.redoStack.length,0);
 });
 test('draft shortcuts leave text Undo alone and applied restore lives only in Sources',async()=>{
   const {api,nodes}=ready();api.state.data.canRestore=true;api.selectConfiguration(api.state.data.presets[0].configuration,'fast');let prevented=false;const event={metaKey:true,ctrlKey:false,altKey:false,shiftKey:false,key:'z',preventDefault(){prevented=true},target:{closest:()=>({})}};
@@ -653,7 +653,7 @@ test('version checks are capability-gated and never block or overwrite edits',as
   await api.checkUpdates();assert.equal(calls,0);
   api.state.data.canCheckUpdates=true;const check=api.checkUpdates();assert.equal(api.state.busy,false);
   await api.checkUpdates();assert.equal(calls,1);
-  api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6-astra'});
+  api.beginEdit();api.editField({dataset:{platform:'codex',task:'planning',field:'model',index:'0'},value:'gpt-6.2-astra'});
   const draft=plain(api.state.draft),markup=nodes.get('root').innerHTML;
   finish({ok:true,update:{currentVersion:'0.1.2',latestVersion:'0.2.0'}});await check;
   assert.deepEqual(plain(api.state.draft),draft);assert.equal(nodes.get('root').innerHTML,markup);
@@ -716,14 +716,14 @@ test('six comparison groups keep inherited children collapsed and remember manua
 });
 test('child model, effort, and ordered team inheritance resolve and reset independently',async()=>{
   const {api}=ready();withChildren(api);const parent=api.state.draft.profiles[0].routes.find(r=>r.category==='review'),child=api.state.draft.profiles[0].routes.find(r=>r.category==='securityReview');
-  parent.modelID='gpt-6-astra';parent.effort={mode:'fixed',value:'max'};parent.additionalAgents=[{id:'second',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'high'}}];
-  assert.equal(api.getEffective('codex','securityReview').modelID,'gpt-6-astra');assert.equal(api.getEffective('codex','securityReview').additionalAgents[0].modelID,'claude-fable-5-2');
+  parent.modelID='gpt-6.2-astra';parent.effort={mode:'fixed',value:'max'};parent.additionalAgents=[{id:'second',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'high'}}];
+  assert.equal(api.getEffective('codex','securityReview').modelID,'gpt-6.2-astra');assert.equal(api.getEffective('codex','securityReview').additionalAgents[0].modelID,'claude-fable-5-2');
   api.editField({dataset:{platform:'codex',task:'securityReview',field:'model',index:'0'},value:'claude-fable-5-2'});
   assert.equal(child.inheritsModel,false);assert.equal(child.inheritsEffort,true);assert.equal(child.inheritsTeam,true);
   api.editField({dataset:{platform:'codex',task:'securityReview',field:'effort',index:'0'},value:'medium'});assert.equal(child.inheritsEffort,false);assert.equal(parent.effort.value,'max');
   api.editField({dataset:{platform:'codex',task:'securityReview',field:'model',index:'1'},value:'gpt-6-luna'});assert.equal(child.inheritsTeam,false);assert.equal(parent.additionalAgents[0].modelID,'claude-fable-5-2');
   api.editField({dataset:{platform:'codex',task:'securityReview',field:'effort',index:'0'},value:'parent'});assert.equal(api.getEffective('codex','securityReview').effort.value,'max');assert.equal(child.inheritsModel,false);
-  await api.handleAction('inheritAll',{platform:'codex',task:'securityReview'});assert(child.inheritsModel&&child.inheritsEffort&&child.inheritsTeam);assert.equal(api.getEffective('codex','securityReview').modelID,'gpt-6-astra');
+  await api.handleAction('inheritAll',{platform:'codex',task:'securityReview'});assert(child.inheritsModel&&child.inheritsEffort&&child.inheritsTeam);assert.equal(api.getEffective('codex','securityReview').modelID,'gpt-6.2-astra');
 });
 test('recipe identity includes inheritance policy while ignoring inactive inherited snapshots',()=>{
   const {api}=ready();withChildren(api);const before=clone(api.state.draft),after=clone(before),route=after.profiles[0].routes.find(r=>r.category==='uiBuild');
@@ -739,12 +739,12 @@ test('effort indicators represent fixed, range, Auto and Ultra without rating mo
 
 test('When stuck is an ordered independent policy with local edits, identity, and no parallel team mutation',async()=>{
   const {api}=ready();withChildren(api);const route=api.state.draft.profiles[0].routes.find(r=>r.category==='debugging');
-  route.stuckEscalation=['claude-fable-5-2','gpt-6-astra','claude-opus-5-5'].map((modelID,index)=>({id:'step-'+index,modelID,effort:{mode:'fixed',value:'max'}}));
+  route.stuckEscalation=['claude-fable-5-2','gpt-6.2-astra','claude-opus-5-5'].map((modelID,index)=>({id:'step-'+index,modelID,effort:{mode:'fixed',value:'max'}}));
   const before=api.routeKey(route),copy=clone(route);copy.stuckEscalation[0].id='new-id';assert.equal(api.routeKey(copy),before);copy.stuckEscalation.reverse();assert.notEqual(api.routeKey(copy),before);
-  const shown=api.escalationSummary('codex',route);assert(shown.indexOf('Fable 5.2')<shown.indexOf('Astra 6'));assert(shown.indexOf('Astra 6')<shown.indexOf('Opus 5.5'));assert.match(shown,/via Claude Code/);
+  const shown=api.escalationSummary('codex',route);assert(shown.indexOf('Fable 5.2')<shown.indexOf('Astra 6.2'));assert(shown.indexOf('Astra 6.2')<shown.indexOf('Opus 5.5'));assert.match(shown,/via Claude Code/);
   api.editField({dataset:{platform:'codex',task:'debugging',field:'stuckEffort',escalationIndex:'0'},value:'medium'});assert.equal(route.stuckEscalation[0].effort.value,'medium');assert.equal(route.inheritsEffort,true);assert.equal(route.additionalAgents.length,0);
-  api.editField({dataset:{platform:'codex',task:'debugging',field:'stuckModel',escalationIndex:'0'},value:'gpt-6-astra'});assert.equal(route.stuckEscalation[0].modelID,'claude-fable-5-2');assert.match(api.state.notice.text,/different model/);
-  await api.handleAction('moveEscalation',{platform:'codex',task:'debugging',index:'1',direction:'up'});assert.equal(route.stuckEscalation[0].modelID,'gpt-6-astra');assert.equal(route.additionalAgents.length,0);
+  api.editField({dataset:{platform:'codex',task:'debugging',field:'stuckModel',escalationIndex:'0'},value:'gpt-6.2-astra'});assert.equal(route.stuckEscalation[0].modelID,'claude-fable-5-2');assert.match(api.state.notice.text,/different model/);
+  await api.handleAction('moveEscalation',{platform:'codex',task:'debugging',index:'1',direction:'up'});assert.equal(route.stuckEscalation[0].modelID,'gpt-6.2-astra');assert.equal(route.additionalAgents.length,0);
   await api.handleAction('inheritAll',{platform:'codex',task:'debugging'});assert.equal(route.stuckEscalation.length,3);await api.handleAction('removeEscalation',{platform:'codex',task:'debugging',index:'1'});assert.equal(route.stuckEscalation.length,2);
 });
 
@@ -752,7 +752,7 @@ test('manual collapse hides differing and equal pins while assignment tiers rema
   const {api}=ready();withChildren(api);api.state.expanded.ui=false;
   assert(!api.matrix().includes('inherits parent settings'));assert(!api.matrix().includes('data-route-id="uiBuild"'));
   const route=api.state.draft.profiles[0].routes.find(r=>r.category==='uiBuild');route.inheritsEffort=false;route.effort={mode:'fixed',value:'medium'};
-  assert(!api.matrix().includes('data-route-id="uiBuild"'));const effortOnly=api.assignment('codex','uiBuild');assert.match(effortOnly,/data-effort="medium"/);assert(effortOnly.includes('Sol 6.1'));
+  assert(!api.matrix().includes('data-route-id="uiBuild"'));const effortOnly=api.assignment('codex','uiBuild');assert.match(effortOnly,/data-effort="medium"/);assert(effortOnly.includes('Sol 6.2'));
   route.effort=clone(api.getEffective('codex','ui').effort);assert.equal(api.childVisible('uiBuild',api.state.platforms),false);assert(!api.matrix().includes('data-route-id="uiBuild"'));
   const shown=api.assignment('codex','planning');assert.match(shown,/Model tier 2 of 3/);assert.equal((shown.match(/class="model-tier"/g)||[]).length,1);assert(!shown.includes('Model level'));
 });
@@ -778,28 +778,28 @@ test('reopened Computer use retains Medium effort in both complete profile assig
   for(const profile of api.state.draft.profiles){
     const parent=profile.routes.find(r=>r.category==='mechanical'),child=profile.routes.find(r=>r.category==='computerUse');
     parent.modelID='gpt-6-luna';parent.effort={mode:'fixed',value:'medium'};
-    child.inheritsModel=false;child.modelID='gpt-6-astra';
+    child.inheritsModel=false;child.modelID='gpt-6.2-astra';
   }
   assert(!api.matrix().includes('data-route-id="computerUse"'));await api.handleAction('disclose',{task:'mechanical'});
   const markup=api.matrix(),row=markup.match(/<tr class="child-row" data-route-id="computerUse">([\s\S]*?)<\/tr>/)[1];
-  assert.equal((row.match(/Astra 6/g)||[]).length,2);assert.equal((row.match(/data-effort="medium"/g)||[]).length,2);
+  assert.equal((row.match(/Astra 6.2/g)||[]).length,2);assert.equal((row.match(/data-effort="medium"/g)||[]).length,2);
   assert.match(row,/via Codex/);assert.doesNotMatch(row,/Pinned|2 agents/);
 });
 test('visible Release security exceptions show ordered lead and extra with Max effort in both profiles',()=>{
   const {api}=ready();withChildren(api);api.state.expanded.review=true;
   for(const profile of api.state.draft.profiles){
     const parent=profile.routes.find(r=>r.category==='review'),child=profile.routes.find(r=>r.category==='securityReview');
-    parent.modelID='gpt-6-astra';parent.effort={mode:'fixed',value:'max'};
+    parent.modelID='gpt-6.2-astra';parent.effort={mode:'fixed',value:'max'};
     child.inheritsTeam=false;child.additionalAgents=[{id:'extra',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'max'}}];
   }
   for(const platform of ['codex','claude']){
     const cell=api.assignment(platform,'securityReview');
-    assert(cell.indexOf('Astra 6')<cell.indexOf('Fable 5.2'));assert.equal((cell.match(/data-effort="max"/g)||[]).length,2);
+    assert(cell.indexOf('Astra 6.2')<cell.indexOf('Fable 5.2'));assert.equal((cell.match(/data-effort="max"/g)||[]).length,2);
     assert.equal((cell.match(/class="model-provider"/g)||[]).length,2);assert.doesNotMatch(cell,/Pinned|2 agents/);
     assert.match(cell,platform==='codex'?/via Claude Code/:/via Codex/);
   }
   api.state.draft.profiles[1].routes.find(r=>r.category==='securityReview').inheritsTeam=true;
-  assert.match(api.assignment('claude','securityReview'),/Astra 6/);assert.match(api.assignment('claude','securityReview'),/data-effort="max"/);
+  assert.match(api.assignment('claude','securityReview'),/Astra 6.2/);assert.match(api.assignment('claude','securityReview'),/data-effort="max"/);
 });
 test('provider sublines keep native and crossover assignment members on the same grid row',()=>{
   const {api}=ready();api.state.draft.profiles[0].routes.find(r=>r.category==='planning').modelID='claude-fable-5-2';
@@ -825,8 +825,8 @@ test('model names and effort bars open one directly anchored field selector with
 test('direct model and effort choices autosave only the draft and retain independent inheritance',async()=>{
   const {api}=ready(),calls=[];withChildren(api);api.setBridge({action:async request=>{calls.push(plain(request));return savedReply(request);}});
   const child=api.state.draft.profiles[0].routes.find(r=>r.category==='computerUse');
-  await api.editInlineField(inlineElement('computerUse','model','gpt-6-astra'));
-  assert.equal(child.modelID,'gpt-6-astra');assert.equal(child.inheritsModel,false);assert.equal(child.inheritsEffort,true);assert.equal(child.inheritsTeam,true);
+  await api.editInlineField(inlineElement('computerUse','model','gpt-6.2-astra'));
+  assert.equal(child.modelID,'gpt-6.2-astra');assert.equal(child.inheritsModel,false);assert.equal(child.inheritsEffort,true);assert.equal(child.inheritsTeam,true);
   await api.editInlineField(inlineElement('computerUse','effort','medium'));
   assert.equal(child.effort.value,'medium');assert.equal(child.inheritsEffort,false);assert.equal(api.state.dirty,false);assert.equal(api.state.busy,false);
   await api.editInlineField(inlineElement('computerUse','model','parent'));assert.equal(child.inheritsModel,true);assert.equal(child.inheritsEffort,false);
@@ -840,12 +840,12 @@ test('extra team members and Controller Auto use direct choices with native-only
   await api.editInlineField(inlineElement('securityReview','effort','medium',{index:1}));
   assert.equal(child.inheritsTeam,false);assert.equal(child.inheritsModel,true);assert.equal(child.inheritsEffort,true);assert.equal(parent.additionalAgents[0].effort.value,'max');assert.equal(child.additionalAgents[0].effort.value,'medium');
   await api.editInlineField(inlineElement('coordinator','model','claude-fable-5-2'));assert.equal(calls.length,1);assert.equal(api.getEffective('codex','coordinator').modelID,'auto');
-  await api.editInlineField(inlineElement('coordinator','model','gpt-6-astra'));assert.match(api.assignment('codex','coordinator'),/Change Codex Controller Effort/);
+  await api.editInlineField(inlineElement('coordinator','model','gpt-6.2-astra'));assert.match(api.assignment('codex','coordinator'),/Change Codex Controller Effort/);
   await api.editInlineField(inlineElement('coordinator','model','auto'));assert.doesNotMatch(api.assignment('codex','coordinator'),/Change Codex Controller Effort/);
 });
 test('rapid direct edits serialize and coalesce saves without accepting stale response drafts',async()=>{
   const {api}=ready(),requests=[],finish=[];api.setBridge({action:request=>{requests.push(plain(request));return new Promise(resolve=>finish.push(resolve));}});
-  const first=api.editInlineField(inlineElement('planning','model','gpt-6-astra'));await Promise.resolve();assert.equal(requests.length,1);
+  const first=api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));await Promise.resolve();assert.equal(requests.length,1);
   api.editInlineField(inlineElement('planning','model','gpt-6-luna'));api.editInlineField(inlineElement('planning','model','gpt-6.1-terra'));
   assert.equal(api.getEffective('codex','planning').modelID,'gpt-6.1-terra');assert.equal(api.state.busy,false);assert.equal(requests.length,1);
   finish[0](savedReply(requests[0]));await new Promise(setImmediate);
@@ -854,17 +854,17 @@ test('rapid direct edits serialize and coalesce saves without accepting stale re
 });
 test('failed automatic save keeps the chosen draft and history, and Retry persists that draft',async()=>{
   const {api,nodes}=ready(),requests=[];let fail=true;api.setBridge({action:async request=>{requests.push(plain(request));if(fail)throw Error('Disk is full');return savedReply(request);}});
-  await api.editInlineField(inlineElement('planning','model','gpt-6-astra'));
-  assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-astra');assert.equal(api.state.undoStack.length,1);assert.equal(api.state.dirty,true);assert.match(api.state.draftSaveError,/Disk is full/);assert.match(nodes.get('root').innerHTML,/data-action="retryDraftSave"/);
+  await api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));
+  assert.equal(api.getEffective('codex','planning').modelID,'gpt-6.2-astra');assert.equal(api.state.undoStack.length,1);assert.equal(api.state.dirty,true);assert.match(api.state.draftSaveError,/Disk is full/);assert.match(nodes.get('root').innerHTML,/data-action="retryDraftSave"/);
   fail=false;await api.handleAction('retryDraftSave');assert.equal(api.state.dirty,false);assert.equal(api.state.draftSaveError,'');assert.deepEqual(requests.map(r=>r.action),['saveDraft','saveDraft']);
 });
 test('Undo and Redo of direct choices autosave in order, including while a save is pending',async()=>{
   const {api}=ready(),requests=[],finish=[];api.setBridge({action:request=>{requests.push(plain(request));return new Promise(resolve=>finish.push(resolve));}});
-  const save=api.editInlineField(inlineElement('planning','model','gpt-6-astra'));await Promise.resolve();
-  const undo=api.travelDraft();assert.equal(api.getEffective('codex','planning').modelID,'gpt-6.1-sol');assert.equal(api.state.redoStack.length,1);
-  finish[0](savedReply(requests[0]));await new Promise(setImmediate);assert.equal(requests.length,2);assert.equal(requests[1].configuration.profiles[0].routes[1].modelID,'gpt-6.1-sol');
+  const save=api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));await Promise.resolve();
+  const undo=api.travelDraft();assert.equal(api.getEffective('codex','planning').modelID,'gpt-6.2-sol');assert.equal(api.state.redoStack.length,1);
+  finish[0](savedReply(requests[0]));await new Promise(setImmediate);assert.equal(requests.length,2);assert.equal(requests[1].configuration.profiles[0].routes[1].modelID,'gpt-6.2-sol');
   finish[1](savedReply(requests[1]));await save;await undo;
-  const redo=api.travelDraft(true);await Promise.resolve();assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-astra');finish[2](savedReply(requests[2]));await redo;assert.equal(api.state.dirty,false);
+  const redo=api.travelDraft(true);await Promise.resolve();assert.equal(api.getEffective('codex','planning').modelID,'gpt-6.2-astra');finish[2](savedReply(requests[2]));await redo;assert.equal(api.state.dirty,false);
 });
 test('range picker stays open for supported bounds and closing never rolls back chosen edits',async()=>{
   const {api}=ready();api.setBridge({action:async request=>savedReply(request)});
@@ -875,24 +875,24 @@ test('range picker stays open for supported bounds and closing never rolls back 
 });
 test('direct edits invalidate old reviews; preview waits for saving and only explicit Apply commits its reviewed ID',async()=>{
   const {api}=ready(),requests=[];let finishSave;api.state.preview=preview();api.setBridge({action:request=>{requests.push(plain(request));if(request.action==='saveDraft')return new Promise(resolve=>{finishSave=()=>resolve(savedReply(request));});if(request.action==='preview')return Promise.resolve({ok:true,preview:preview()});if(request.action==='apply')return Promise.resolve({ok:true,state:data()});throw Error('Unexpected action');}});
-  const save=api.editInlineField(inlineElement('planning','model','gpt-6-astra'));await Promise.resolve();assert.equal(api.state.preview,null);
+  const save=api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));await Promise.resolve();assert.equal(api.state.preview,null);
   const review=api.prepare();await Promise.resolve();assert.deepEqual(requests.map(r=>r.action),['saveDraft']);finishSave();await save;await review;
-  assert.deepEqual(requests.map(r=>r.action),['saveDraft','preview']);assert.equal(requests[1].configuration.profiles[0].routes[1].modelID,'gpt-6-astra');
+  assert.deepEqual(requests.map(r=>r.action),['saveDraft','preview']);assert.equal(requests[1].configuration.profiles[0].routes[1].modelID,'gpt-6.2-astra');
   await api.applyReview();assert.deepEqual(requests[2],{action:'apply',previewID:'review-exact-id'});
 });
 
 
 test('Review after a failed autosave validates the current choice and Apply still requires explicit review',async()=>{
   const {api}=ready(),requests=[];api.setBridge({action:async request=>{requests.push(plain(request));if(request.action==='saveDraft')throw Error('Draft storage unavailable');if(request.action==='preview')return {ok:true,preview:preview()};if(request.action==='apply')return {ok:true,state:data()};throw Error('Unexpected action');}});
-  await api.editInlineField(inlineElement('planning','model','gpt-6-astra'));await api.prepare();
-  assert.deepEqual(requests.map(r=>r.action),['saveDraft','preview']);assert.equal(requests[1].configuration.profiles[0].routes[1].modelID,'gpt-6-astra');assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-astra');
+  await api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));await api.prepare();
+  assert.deepEqual(requests.map(r=>r.action),['saveDraft','preview']);assert.equal(requests[1].configuration.profiles[0].routes[1].modelID,'gpt-6.2-astra');assert.equal(api.getEffective('codex','planning').modelID,'gpt-6.2-astra');
   await api.applyReview();assert.deepEqual(requests[2],{action:'apply',previewID:'review-exact-id'});assert.equal(api.state.draftSaveError,'');
 });
 
 
 test('tool changes continue autosaving after a direct choice and expose Retry on save failure',async()=>{
   const {api,nodes}=ready(),requests=[];let fail=false,saved=data();api.setBridge({action:async request=>{requests.push(plain(request));if(request.action==='state'){const response=clone(saved);response.enabledPlatforms=[...request.platforms];return {ok:true,state:response};}if(fail)throw Error('Cannot save selected tools');saved=savedReply(request).state;return {ok:true,state:clone(saved)};}});
-  await api.editInlineField(inlineElement('planning','model','gpt-6-astra'));await api.handleAction('togglePlatform',{platform:'claude'});await api.state.draftSavePromise;
+  await api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));await api.handleAction('togglePlatform',{platform:'claude'});await api.state.draftSavePromise;
   assert.deepEqual(requests.map(r=>r.action),['saveDraft','state','saveDraft']);assert.deepEqual(saved.enabledPlatforms,['codex']);assert.equal(api.state.dirty,false);
   fail=true;await api.handleAction('togglePlatform',{platform:'claude'});await api.state.draftSavePromise;
   assert.deepEqual(plain(api.state.platforms),['codex','claude']);assert.deepEqual(saved.enabledPlatforms,['codex']);assert.equal(api.state.dirty,true);assert.match(nodes.get('root').innerHTML,/data-action="retryDraftSave"/);
@@ -900,7 +900,7 @@ test('tool changes continue autosaving after a direct choice and expose Retry on
 });
 test('custom model additions and removals autosave, retain failures, and preserve legacy Edit staging',async()=>{
   const {api}=ready(),requests=[];let fail=false;api.setBridge({action:async request=>{requests.push(plain(request));if(fail)throw Error('Draft cannot be saved');return savedReply(request);}});
-  await api.editInlineField(inlineElement('planning','model','gpt-6-astra'));
+  await api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));
   const form={id:'custom-model-form',values:{id:'custom-test',label:'Custom test',platform:'codex',efforts:'low, medium, high'},reset(){}};
   await api.submitForm(form);await api.state.draftSavePromise;assert.equal(requests.at(-1).configuration.customModels[0].id,'custom-test');assert.equal(api.state.dirty,false);
   fail=true;await api.handleAction('removeCustom',{id:'custom-test'});await api.state.draftSavePromise;assert.equal(api.state.draft.customModels.length,0);assert.equal(api.state.dirty,true);assert.match(api.state.draftSaveError,/cannot be saved/);
@@ -909,20 +909,20 @@ test('custom model additions and removals autosave, retain failures, and preserv
 });
 test('completed autosaves refresh Previous draft metadata while newer local and queued choices remain intact',async()=>{
   const {api}=ready(),requests=[],finish=[],initial=plain(api.state.draft);api.setBridge({action:request=>{requests.push(plain(request));return new Promise(resolve=>finish.push(resolve));}});
-  const save=api.editInlineField(inlineElement('planning','model','gpt-6-astra'));await Promise.resolve();
+  const save=api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));await Promise.resolve();
   api.editInlineField(inlineElement('planning','model','gpt-6-luna'));
   const first=savedReply(requests[0]);first.state.previousDraft=initial;first.state.savedPresets=[{id:'new-saved',name:'Stored preset',configuration:initial}];finish[0](first);await new Promise(setImmediate);
-  assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-luna');assert.equal(api.state.data.previousDraft.profiles[0].routes[1].modelID,'gpt-6.1-sol');assert.equal(api.state.data.savedPresets[0].id,'new-saved');assert.equal(requests.length,2);
+  assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-luna');assert.equal(api.state.data.previousDraft.profiles[0].routes[1].modelID,'gpt-6.2-sol');assert.equal(api.state.data.savedPresets[0].id,'new-saved');assert.equal(requests.length,2);
   const second=savedReply(requests[1]);second.state.previousDraft=clone(requests[0].configuration);finish[1](second);await save;
-  assert.equal(api.state.data.previousDraft.profiles[0].routes[1].modelID,'gpt-6-astra');assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-luna');
-  await api.handleAction('savedPreset',{id:'previous'});await Promise.resolve();assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-astra');assert.equal(requests[2].configuration.profiles[0].routes[1].modelID,'gpt-6-astra');
+  assert.equal(api.state.data.previousDraft.profiles[0].routes[1].modelID,'gpt-6.2-astra');assert.equal(api.getEffective('codex','planning').modelID,'gpt-6-luna');
+  await api.handleAction('savedPreset',{id:'previous'});await Promise.resolve();assert.equal(api.getEffective('codex','planning').modelID,'gpt-6.2-astra');assert.equal(requests[2].configuration.profiles[0].routes[1].modelID,'gpt-6.2-astra');
   const last=savedReply(requests[2]);last.state.previousDraft=clone(requests[1].configuration);finish[2](last);await api.state.draftSavePromise;assert.equal(api.state.data.previousDraft.profiles[0].routes[1].modelID,'gpt-6-luna');
 });
 
 
 test('legacy Edit remains staged after an earlier automatic save, including Undo, Redo, and preset selection',async()=>{
   const {api}=ready(),requests=[];api.setBridge({action:async request=>{requests.push(plain(request));return savedReply(request);}});
-  await api.editInlineField(inlineElement('planning','model','gpt-6-astra'));const baseline=plain(api.state.draft);api.beginEdit();
+  await api.editInlineField(inlineElement('planning','model','gpt-6.2-astra'));const baseline=plain(api.state.draft);api.beginEdit();
   api.editField(inlineElement('planning','model','gpt-6-luna'));await api.travelDraft();await api.travelDraft(true);api.selectConfiguration(api.state.data.presets[0].configuration,'fast');await Promise.resolve();
   assert.equal(requests.length,1);api.cancelEdit();assert.deepEqual(plain(api.state.draft),baseline);
 });
@@ -931,7 +931,7 @@ test('legacy Edit remains staged after an earlier automatic save, including Undo
 test('manual collapse hides every configured child and reopening restores choices without saving',async()=>{
   const {api}=ready(),calls=[];withChildren(api);api.setBridge({action:async request=>{calls.push(plain(request));throw Error('Disclosure must not save');}});
   for(const profile of api.state.draft.profiles)for(const route of profile.routes.filter(route=>api.PARENTS[route.category])){
-    route.inheritsModel=false;route.modelID='gpt-6-astra';route.inheritsEffort=false;route.effort={mode:'fixed',value:'medium'};route.inheritsTeam=false;
+    route.inheritsModel=false;route.modelID='gpt-6.2-astra';route.inheritsEffort=false;route.effort={mode:'fixed',value:'medium'};route.inheritsTeam=false;
     route.additionalAgents=[{id:'child-worker',modelID:'claude-fable-5-2',effort:{mode:'fixed',value:'max'}}];
     if(route.category==='debugging')route.stuckEscalation=[{id:'next',modelID:'claude-opus-5-5',effort:{mode:'fixed',value:'max'}}];
   }
@@ -955,9 +955,9 @@ test('closing a child picker preserves its in-flight autosave and hides child Mo
   finish();await saving;assert.equal(api.state.dirty,false);assert(!api.matrix().includes('data-route-id="uiBuild"'));
   await api.handleAction('disclose',{task:'ui'});assert.match(api.assignment('codex','uiBuild'),/data-mode="range"/);assert.equal(api.state.fieldPicker,null);
   await api.handleAction('moreSettings',{task:'uiBuild'});assert(api.matrix().includes('row-more'));await api.handleAction('disclose',{task:'ui'});assert.equal(api.state.moreTask,null);assert(!api.matrix().includes('row-more'));
-  await api.handleAction('disclose',{task:'ui'});await api.handleAction('editRow',{task:'uiBuild'});api.editField(inlineElement('uiBuild','model','gpt-6-astra'));
+  await api.handleAction('disclose',{task:'ui'});await api.handleAction('editRow',{task:'uiBuild'});api.editField(inlineElement('uiBuild','model','gpt-6.2-astra'));
   const edited=plain(api.state.draft);await api.handleAction('disclose',{task:'ui'});assert.equal(api.state.editingTask,null);assert.equal(api.state.advanced,true);assert.deepEqual(plain(api.state.draft),edited);assert.equal(requests.length,1);
-  await api.handleAction('disclose',{task:'ui'});assert.match(api.assignment('codex','uiBuild'),/Astra 6/);assert(!api.matrix().includes('row-editor'));
+  await api.handleAction('disclose',{task:'ui'});assert.match(api.assignment('codex','uiBuild'),/Astra 6.2/);assert(!api.matrix().includes('row-editor'));
 });
 
 function autoConnectionHost(incoming,connection){
@@ -977,7 +977,7 @@ test('opening a configured MCP panel checks Claude and presents failures without
  }
 });
 test('opening native-only or reversed routes does not check an independent Claude login',async()=>{
- const incoming=data();incoming.canConnectClaude=true;incoming.configuration.profiles[1].routes[1].modelID='gpt-6-astra';
+ const incoming=data();incoming.canConnectClaude=true;incoming.configuration.profiles[1].routes[1].modelID='gpt-6.2-astra';
  const {api,calls}=autoConnectionHost(incoming,{state:'signInRequired'});await api.initialize();
  assert.deepEqual(calls.map(x=>x.action),['state']);assert.equal(api.state.modal,null);
 });
@@ -993,7 +993,7 @@ test('opening preserves a required missing provider and uses applied routes mask
 test('re-enabling either provider rechecks after prior connection and after Not now',async()=>{
  for(const platform of ['claude','codex'])for(const initial of ['connected','signInRequired']){
   const {api}=connectionReady();api.state.draft.profiles[0].routes[1].modelID='claude-opus-5-5';for(const preset of api.state.data.presets)preset.configuration.profiles[0].routes[1].modelID='claude-opus-5-5';let status=initial;const calls=[];
-  api.setBridge({action:async request=>{calls.push(request.action);if(request.action==='state'){const next=data();next.canConnectClaude=true;next.configuration=plain(api.state.draft);next.enabledPlatforms=[...request.platforms];next.preferredPlatforms=[...request.platforms];for(const preset of next.presets)preset.configuration.profiles[0].routes[1].modelID=request.platforms.includes('claude')?'claude-opus-5-5':'gpt-6.1-sol';return {ok:true,state:next};}return {ok:true,claudeConnection:{state:status,detail:'Fixture'}};}});
+  api.setBridge({action:async request=>{calls.push(request.action);if(request.action==='state'){const next=data();next.canConnectClaude=true;next.configuration=plain(api.state.draft);next.enabledPlatforms=[...request.platforms];next.preferredPlatforms=[...request.platforms];for(const preset of next.presets)preset.configuration.profiles[0].routes[1].modelID=request.platforms.includes('claude')?'claude-opus-5-5':'gpt-6.2-sol';return {ok:true,state:next};}return {ok:true,claudeConnection:{state:status,detail:'Fixture'}};}});
   await api.offerClaudeConnection();if(initial==='signInRequired')await api.handleAction('closeModal');
   status='signInRequired';await api.handleAction('togglePlatform',{platform});assert.equal(api.state.modal,null);
   await api.handleAction('togglePlatform',{platform});assert.equal(api.state.modal?.kind,'claudeConnection',platform+' after '+initial);
@@ -1046,4 +1046,64 @@ test('opening requirement survives entering Edit without changing the saved rout
  finish({ok:true,claudeConnection:{state:'missing',detail:'Install Claude Code.'}});await check;
  assert.equal(api.state.modal?.kind,'claudeConnection');assert.equal(api.state.claudeConnection.state,'missing');
  assert.equal(api.state.advanced,true);
+});
+
+test('Claude logout requires confirmation and cancelling it preserves the connection',async()=>{
+ for(const initial of ['connected','unavailable']){
+  const {api,nodes}=connectionReady(),calls=[];api.setBridge({action:async request=>{calls.push(plain(request));return {ok:true,claudeConnection:{state:initial,detail:'Fixture'}};}});
+  await api.handleAction('openClaudeConnection');const draft=plain(api.state.draft);
+  assert.match(nodes.get('modal-root').innerHTML,/>Log out…<\/button>/);
+  await api.handleAction('logoutClaude');assert.equal(calls.length,1);
+  await api.handleAction('requestClaudeLogout');assert.match(nodes.get('modal-root').innerHTML,/Log out of Claude\?/);assert.match(nodes.get('modal-root').innerHTML,/shared Claude Code CLI profile/);
+  assert.equal(calls.length,1);await api.handleAction('cancelClaudeLogout');
+  assert.equal(api.state.claudeConnection.state,initial);assert(!api.state.modal.logoutConfirmation);assert.equal(calls.length,1);
+  assert.deepEqual(plain(api.state.draft),draft);
+ }
+});
+test('confirmed Claude logout clears cached connection and review resumption without signing in',async()=>{
+ const {api,nodes}=connectionReady(),calls=[];let finish;
+ api.setBridge({action:request=>{calls.push(plain(request));if(request.action==='checkClaudeConnection')return Promise.resolve({ok:true,claudeConnection:{state:'connected',detail:'Connected'}});return new Promise(resolve=>{finish=resolve;});}});
+ await api.handleAction('openClaudeConnection');const draft=plain(api.state.draft);
+ api.state.claudeResumePreview=true;api.state.preview=preview();api.state.claudePromptSuppressed=true;
+ await api.handleAction('requestClaudeLogout');const pending=api.handleAction('logoutClaude');
+ assert.equal(api.state.claudeConnection.state,'loggingOut');assert.equal(api.state.claudeConnectionConfirmed,false);assert.equal(api.state.claudeResumePreview,false);assert.equal(api.state.claudePromptSuppressed,false);assert.equal(api.state.preview,null);
+ assert.match(nodes.get('modal-root').innerHTML,/Logging out of Claude/);
+ await api.handleAction('logoutClaude');await api.handleAction('connectClaude');await api.handleAction('recheckClaudeConnection');
+ assert.deepEqual(calls,[{action:'checkClaudeConnection'},{action:'logoutClaude'}]);
+ finish({ok:true,claudeConnection:{state:'signInRequired',detail:'Logged out.'}});await pending;
+ assert.match(nodes.get('modal-root').innerHTML,/>Continue with Claude<\/button>/);assert(!nodes.get('modal-root').innerHTML.includes('data-action="requestClaudeLogout"'));
+ await api.handleAction('closeModal');assert.equal(api.state.modal,null);assert.equal(calls.length,2);assert.deepEqual(plain(api.state.draft),draft);
+});
+test('failed or unverified logout offers a recheck without claiming signed out',async()=>{
+ for(const result of [{state:'unavailable',detail:'Logout could not be confirmed.'},{state:'connected',detail:'Still connected'},null]){
+  const {api,nodes}=connectionReady(),calls=[];
+  api.setBridge({action:async request=>{calls.push(request.action);if(request.action==='checkClaudeConnection')return {ok:true,claudeConnection:{state:'connected',detail:'Ready'}};if(result===null)throw Error('Logout timed out; recheck.');return {ok:true,claudeConnection:result};}});
+  await api.handleAction('openClaudeConnection');await api.handleAction('requestClaudeLogout');await api.handleAction('logoutClaude');
+  assert.equal(api.state.claudeConnection.state,'unavailable');assert.equal(api.state.claudeConnectionConfirmed,false);assert.match(nodes.get('modal-root').innerHTML,/>Recheck<\/button>/);assert(!nodes.get('modal-root').innerHTML.includes('Continue with Claude'));
+  assert.deepEqual(calls,['checkClaudeConnection','logoutClaude']);
+ }
+});
+test('dismissing pending logout cancels its request and ignores late success',async()=>{
+ const {api}=connectionReady();let finish,signal;
+ api.setBridge({action:(request,options)=>request.action==='checkClaudeConnection'?Promise.resolve({ok:true,claudeConnection:{state:'connected'}}):new Promise(resolve=>{finish=resolve;signal=options.signal;})});
+ await api.handleAction('openClaudeConnection');await api.handleAction('requestClaudeLogout');const pending=api.handleAction('logoutClaude');
+ await api.handleAction('closeModal');assert(signal.aborted);
+ finish({ok:true,claudeConnection:{state:'signInRequired',detail:'Logged out'}});await pending;
+ assert.equal(api.state.modal,null);assert.equal(api.state.claudeConnection,null);assert.equal(api.state.claudeConnectionConfirmed,false);
+});
+test('logout is unavailable in HTTP and while signed out or missing a CLI',async()=>{
+ for(const phase of ['signInRequired','missing','checking','connecting']){
+  const {api}=connectionReady(),calls=[];api.state.modal={kind:'claudeConnection'};api.state.claudeConnection={state:phase};
+  api.setBridge({action:async request=>calls.push(request)});await api.handleAction('requestClaudeLogout');await api.handleAction('logoutClaude');assert.deepEqual(calls,[]);
+ }
+ const {api}=connectionReady(),calls=[];api.state.modal={kind:'claudeConnection',logoutConfirmation:true};api.state.claudeConnection={state:'connected'};api.setBridge({http:true,action:async r=>calls.push(r)});
+ await api.handleAction('logoutClaude');assert.deepEqual(calls,[]);
+});
+
+test('new pickers exclude superseded cached Sol/Astra but keep their historical labels',()=>{
+ const {api}=ready();api.state.data.catalog.push({id:'gpt-6.1-sol',label:'Sol 6.1',platform:'codex',isDiscovered:true},{id:'gpt-6-astra',label:'Astra 6',platform:'codex',isDiscovered:true});
+ const choices=api.availableModels('codex','planning').map(m=>m.id);
+ assert(choices.includes('gpt-6.2-sol'));assert(choices.includes('gpt-6.2-astra'));
+ assert(!choices.includes('gpt-6.1-sol'));assert(!choices.includes('gpt-6-astra'));
+ assert.equal(api.catalog().find(m=>m.id==='gpt-6-astra').label,'Astra 6');
 });

@@ -23,19 +23,25 @@ final class ClaudeConnectionTests: XCTestCase {
     private func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
     private func emit(_ value: String, exit: Int = 0) -> String { "printf '%s\\n' \(quote(value))\nexit \(exit)\n" }
     @discardableResult private func fakeCLI(_ relative: String = ".local/bin/claude", version: String = "2.1.320", status: String,
-                         login: String = "exit 99\n") throws -> URL {
+                         login: String = "exit 99\n", logout: String = "exit 99\n", versionProbe: String? = nil) throws -> URL {
         let url = home.appendingPathComponent(relative)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let versionCommand = versionProbe ?? "printf '%s (Claude Code)\\n' \(quote(version)); exit 0\n"
         let body = """
         #!/bin/sh
         printf '%s|%s|%s|%s|%s\\n' \(quote(relative)) "$*" "$HOME" "${CLAUDE_CONFIG_DIR+set}" "${CLAUDE_CONFIG_DIR-}" >> \(quote(calls.path))
         case "$*" in
-          '--version') printf '%s (Claude Code)\\n' \(quote(version)); exit 0 ;;
+          '--version')
+        \(versionCommand)
+            ;;
           'auth status --json')
         \(status)
             ;;
           'auth login')
         \(login)
+            ;;
+          'auth logout')
+        \(logout)
             ;;
           *) exit 98 ;;
         esac
@@ -49,13 +55,21 @@ final class ClaudeConnectionTests: XCTestCase {
                                      activeExecutables: { active })
         return IntegrationService(discovery: discovery, applicationSupport: support, metadataOnlyDiscovery: metadata)
     }
-    private func service(environment: [String: String] = [:], active: [URL] = [], check: TimeInterval = 3,
-                         login: TimeInterval = 2, probe: TimeInterval = 0.5) -> StandMixerClaudeConnectionService {
+    // Use production check/probe budgets for positive fixtures. Tests for explicit
+    // deadlines set their smaller bounds at each call site.
+    private func service(environment: [String: String] = [:], active: [URL] = [],
+                         check: TimeInterval = StandMixerClaudeConnectionService.maximumCheckDuration,
+                         login: TimeInterval = 2, logout: TimeInterval = 2, probe: TimeInterval = 2) -> StandMixerClaudeConnectionService {
         .init(service: integration(environment: environment, active: active), checkDuration: check,
-              loginDuration: login, probeDuration: probe)
+              loginDuration: login, logoutDuration: logout, probeDuration: probe)
     }
     private func recordedCalls() throws -> [String] {
         try String(contentsOf: calls, encoding: .utf8).split(separator: "\n").map(String.init)
+    }
+    private func storeInvocation(_ invocation: StandMixerClaudeInvocation) throws {
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+        try JSONEncoder().encode(invocation).write(to: preferenceURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: preferenceURL.path)
     }
     private func waitForFile(_ url: URL, attempts: Int = 100) async throws {
         for _ in 0..<attempts {
@@ -156,9 +170,10 @@ final class ClaudeConnectionTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: preferenceURL), originalBinding)
     }
 
-    func testConcurrentFirstLinksRetryLockWithoutSwitchingProfiles() async throws {
+    func testConcurrentFirstLinksRejectAProfileSwitchAfterBothCaptureAnUnboundProfile() async throws {
         let gate = root.appendingPathComponent("release-status")
-        let waitForGate = "while [ ! -e \(quote(gate.path)) ]; do /bin/sleep 0.01; done\n"
+        let waitForGate = "/usr/bin/touch \"${CLAUDE_CONFIG_DIR}.ready\"\n"
+            + "while [ ! -e \(quote(gate.path)) ]; do /bin/sleep 0.01; done\n"
         let cli = try fakeCLI(status: waitForGate + emit(connected))
         let locker = integration()
         try locker.acquireOperationLock()
@@ -167,16 +182,24 @@ final class ClaudeConnectionTests: XCTestCase {
 
         let profiles = [root.appendingPathComponent("first profile").path, root.appendingPathComponent("second profile").path]
         let operations = profiles.map { profile in
-            let connection = service(environment: ["CLAUDE_CONFIG_DIR": profile], check: 5, probe: 2)
+            let connection = service(environment: ["CLAUDE_CONFIG_DIR": profile], check: 12, probe: 10)
             return Task { try await connection.check() }
         }
         defer { operations.forEach { $0.cancel() } }
-        try await waitForStatusCalls(2)
-        try Data().write(to: gate)
-        try await Task.sleep(for: .milliseconds(100))
+        let ready = profiles.map { URL(fileURLWithPath: $0 + ".ready") }
+        for _ in 0..<500 {
+            if ready.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard ready.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) else {
+            throw StandMixerError.invalid("Both fixture Claude profiles did not reach the status barrier before its deadline.")
+        }
         XCTAssertFalse(FileManager.default.fileExists(atPath: preferenceURL.path))
+        // Both operations captured an unbound profile. Let their successful status
+        // checks race to bind it without turning the test into a retry-deadline race.
         locker.releaseOperationLock()
         lockHeld = false
+        try Data().write(to: gate)
 
         var linked: [String] = []
         for (profile, operation) in zip(profiles, operations) {
@@ -185,7 +208,7 @@ final class ClaudeConnectionTests: XCTestCase {
                 XCTAssertEqual(report.state, .connected)
                 linked.append(profile)
             } catch {
-                XCTAssertTrue(error.localizedDescription.contains("selected Claude profile changed"))
+                XCTAssertTrue(error.localizedDescription.contains("selected Claude profile changed"), error.localizedDescription)
             }
         }
         let binding = try JSONDecoder().decode(StandMixerClaudeInvocation.self, from: Data(contentsOf: preferenceURL))
@@ -241,6 +264,203 @@ final class ClaudeConnectionTests: XCTestCase {
         let report = try await service().check()
         XCTAssertEqual(report.state, .connected)
         XCTAssertTrue(try recordedCalls().allSatisfy { $0.hasSuffix("|\(boundHome.path)||") })
+    }
+
+    func testLogoutUsesSavedInvocationAndKeepsItForExplicitReconnect() async throws {
+        try Data().write(to: signedIn)
+        let config = root.appendingPathComponent("saved profile").path
+        let status = "if [ -f \(quote(signedIn.path)) ]; then\n\(emit(connected))fi\n" + emit(#"{"loggedIn":false}"#, exit: 1)
+        let login = "/usr/bin/touch \(quote(signedIn.path))\nexit 0\n"
+        let logout = "printf '%s\\n' 'private-logout-output'\nprintf '%s\\n' 'private-logout-error' >&2\n/bin/rm -f \(quote(signedIn.path))\nexit 0\n"
+        let cli = try fakeCLI(status: status, login: login, logout: logout)
+        let linked = try await service(environment: ["CLAUDE_CONFIG_DIR": config]).check()
+        XCTAssertEqual(linked.state, .connected)
+        let binding = try Data(contentsOf: preferenceURL)
+        try fakeCLI(".local/share/claude/versions/2.9.999", version: "2.9.999",
+                    status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+        try FileManager.default.removeItem(at: calls)
+
+        let connection = service(environment: ["HOME": "/wrong-home", "CLAUDE_CONFIG_DIR": "/wrong-profile"])
+        let report = try await connection.logout()
+        XCTAssertEqual(report.state, .signInRequired)
+        XCTAssertEqual(report.cliPath, cli.path)
+        let logoutCalls = try recordedCalls()
+        XCTAssertEqual(logoutCalls.map { $0.split(separator: "|")[1] }, ["--version", "auth logout", "auth status --json"])
+        XCTAssertTrue(logoutCalls.allSatisfy { $0.hasPrefix(".local/bin/claude|") && $0.hasSuffix("|\(boundHome.path)|set|\(config)") })
+        XCTAssertEqual(try Data(contentsOf: preferenceURL), binding)
+        let encoded = String(decoding: try JSONEncoder().encode(report), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("private-logout"))
+        XCTAssertFalse(encoded.contains("fixture@example.invalid"))
+        XCTAssertFalse(logoutCalls.contains { $0.contains("|auth login|") })
+
+        let reconnected = try await connection.connect()
+        XCTAssertEqual(reconnected.state, .connected)
+        XCTAssertTrue(try recordedCalls().allSatisfy { $0.hasSuffix("|\(boundHome.path)|set|\(config)") })
+        XCTAssertEqual(try recordedCalls().filter { $0.contains("|auth login|") }.count, 1)
+    }
+
+    func testLogoutPreservesUnsetExplicitDefaultAndEmptyConfigNamespaces() async throws {
+        let cli = try fakeCLI(status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+        let profiles: [String?] = [nil, home.appendingPathComponent(".claude").path, ""]
+        for config in profiles {
+            let invocation = StandMixerClaudeInvocation(executable: cli, home: boundHome, configDirectory: config)
+            try storeInvocation(invocation)
+            try? FileManager.default.removeItem(at: calls)
+            let report = try await service(environment: ["CLAUDE_CONFIG_DIR": "/different-profile"]).logout()
+            XCTAssertEqual(report.state, .signInRequired)
+            let suffix = "|\(boundHome.path)|\(config == nil ? "" : "set")|\(config ?? "")"
+            XCTAssertEqual(try recordedCalls().count, 3)
+            XCTAssertTrue(try recordedCalls().allSatisfy { $0.hasSuffix(suffix) })
+            let kept = try JSONDecoder().decode(StandMixerClaudeInvocation.self, from: Data(contentsOf: preferenceURL))
+            XCTAssertEqual(kept, invocation)
+        }
+    }
+
+    func testLogoutCanRecoverFromUnknownStatusWithoutAnAuthPrecheck() async throws {
+        let loggedOut = root.appendingPathComponent("logged-out")
+        let status = "if [ -f \(quote(loggedOut.path)) ]; then\n\(emit(#"{"loggedIn":false}"#, exit: 1))fi\n" + emit("unsupported-status")
+        try fakeCLI(status: status, logout: "/usr/bin/touch \(quote(loggedOut.path))\nexit 0\n")
+        let connection = service()
+        let initial = try await connection.check()
+        XCTAssertEqual(initial.state, .unavailable)
+        try FileManager.default.removeItem(at: calls)
+        let report = try await connection.logout()
+        XCTAssertEqual(report.state, .signInRequired)
+        XCTAssertEqual(try recordedCalls().map { $0.split(separator: "|")[1] }, ["--version", "auth logout", "auth status --json"])
+    }
+
+    func testLogoutReplacesBrokenSavedBinaryBeforeMutationInTheSavedProfile() async throws {
+        let original = try fakeCLI(status: emit(connected))
+        let config = root.appendingPathComponent("original profile").path
+        let linked = try await service(environment: ["CLAUDE_CONFIG_DIR": config]).check()
+        XCTAssertEqual(linked.state, .connected)
+        try fakeCLI(version: "not-a-version", status: emit(connected), logout: "exit 0\n")
+        let replacement = try fakeCLI(".local/share/claude/versions/2.9.999", version: "2.9.999",
+                                      status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+        try FileManager.default.removeItem(at: calls)
+        let report = try await service(environment: ["CLAUDE_CONFIG_DIR": "/different-profile"]).logout()
+        XCTAssertEqual(report.state, .signInRequired)
+        XCTAssertEqual(report.cliPath, replacement.path)
+        let recorded = try recordedCalls()
+        XCTAssertEqual(recorded.count, 4)
+        XCTAssertTrue(recorded[0].hasPrefix(".local/bin/claude|--version|"))
+        XCTAssertTrue(recorded.dropFirst().allSatisfy { $0.hasPrefix(".local/share/claude/versions/2.9.999|") })
+        XCTAssertTrue(recorded.allSatisfy { $0.hasSuffix("|\(boundHome.path)|set|\(config)") })
+        XCTAssertFalse(recorded.contains { $0.hasPrefix(".local/bin/claude|auth logout|") })
+        let kept = try JSONDecoder().decode(StandMixerClaudeInvocation.self, from: Data(contentsOf: preferenceURL))
+        XCTAssertNotEqual(kept.executable, original)
+        XCTAssertEqual(kept.executable, replacement)
+        XCTAssertEqual(kept.configDirectory, config)
+    }
+
+    func testFailedLogoutIsUnknownAndNeverChecksOrMutatesAnotherBinary() async throws {
+        let cli = try fakeCLI(status: emit(connected), logout: emit("private-logout-failure", exit: 7))
+        try storeInvocation(.init(executable: cli, home: boundHome, configDirectory: nil))
+        try fakeCLI(".local/share/claude/versions/2.9.999", version: "2.9.999",
+                    status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+        let report = try await service().logout()
+        XCTAssertEqual(report.state, .unavailable)
+        XCTAssertTrue(report.detail.contains("Sign-in status is unknown"))
+        XCTAssertFalse(report.detail.contains("private-logout"))
+        let recorded = try recordedCalls()
+        XCTAssertEqual(recorded.map { $0.split(separator: "|")[1] }, ["--version", "auth logout"])
+        XCTAssertTrue(recorded.allSatisfy { $0.hasPrefix(".local/bin/claude|") })
+    }
+
+    func testLogoutSkipsSavedLeafRedirectedIntoProtectedDocuments() async throws {
+        try await assertLogoutSkipsSavedRedirect(ancestor: false)
+    }
+
+    func testLogoutSkipsSavedAncestorRedirectedIntoProtectedDocuments() async throws {
+        try await assertLogoutSkipsSavedRedirect(ancestor: true)
+    }
+
+    private func assertLogoutSkipsSavedRedirect(ancestor: Bool) async throws {
+        let original = try fakeCLI(status: emit(connected))
+        let config = root.appendingPathComponent("redirected saved profile").path
+        let linked = try await service(environment: ["CLAUDE_CONFIG_DIR": config]).check()
+        XCTAssertEqual(linked.state, .connected)
+        let protected = try fakeCLI("Documents/redirected-bin/claude", status: emit(connected), logout: "exit 0\n")
+        if ancestor {
+            try FileManager.default.removeItem(at: original.deletingLastPathComponent())
+            try FileManager.default.createSymbolicLink(at: original.deletingLastPathComponent(),
+                withDestinationURL: protected.deletingLastPathComponent())
+        } else {
+            try FileManager.default.removeItem(at: original)
+            try FileManager.default.createSymbolicLink(at: original, withDestinationURL: protected)
+        }
+        let replacement = try fakeCLI(".local/share/claude/versions/2.9.999", version: "2.9.999",
+                                      status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+        try FileManager.default.removeItem(at: calls)
+        let report = try await service(environment: ["CLAUDE_CONFIG_DIR": "/different-profile"]).logout()
+        XCTAssertEqual(report.state, .signInRequired)
+        XCTAssertEqual(report.cliPath, replacement.path)
+        let recorded = try recordedCalls()
+        XCTAssertEqual(recorded.map { $0.split(separator: "|")[1] }, ["--version", "auth logout", "auth status --json"])
+        XCTAssertTrue(recorded.allSatisfy { $0.hasPrefix(".local/share/claude/versions/2.9.999|") })
+        XCTAssertFalse(recorded.contains { $0.contains("Documents") })
+        XCTAssertTrue(recorded.allSatisfy { $0.hasSuffix("|\(boundHome.path)|set|\(config)") })
+    }
+
+    func testLogoutNeedsSignedOutPostcheckAndNeverFallsBackAfterMutation() async throws {
+        for status in [emit(connected), emit("private-unrecognized-status"), emit(#"{"loggedIn":false}"#, exit: 7),
+                       emit(#"{"loggedIn":true,"authMethod":"claude.ai","loginExpiresAt":1}"#),
+                       emit(#"{"loggedIn":0}"#)] {
+            let cli = try fakeCLI(status: status, logout: "exit 0\n")
+            try storeInvocation(.init(executable: cli, home: boundHome, configDirectory: nil))
+            try fakeCLI(".local/share/claude/versions/2.9.999", version: "2.9.999",
+                        status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+            try? FileManager.default.removeItem(at: calls)
+            let report = try await service().logout()
+            XCTAssertEqual(report.state, .unavailable)
+            XCTAssertTrue(report.detail.contains("Sign-in status is unknown"))
+            XCTAssertFalse(report.detail.contains("private-unrecognized"))
+            let recorded = try recordedCalls()
+            XCTAssertEqual(recorded.map { $0.split(separator: "|")[1] }, ["--version", "auth logout", "auth status --json"])
+            XCTAssertTrue(recorded.allSatisfy { $0.hasPrefix(".local/bin/claude|") })
+        }
+    }
+
+    func testLogoutRevalidatesSavedProfileAfterVersionResolution() async throws {
+        let gate = root.appendingPathComponent("version-started")
+        let release = root.appendingPathComponent("release-version")
+        let version = "/usr/bin/touch \(quote(gate.path))\nwhile [ ! -f \(quote(release.path)) ]; do /bin/sleep 0.01; done\n"
+            + "printf '%s\\n' '2.1.320 (Claude Code)'\nexit 0\n"
+        let cli = try fakeCLI(status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n", versionProbe: version)
+        try storeInvocation(.init(executable: cli, home: boundHome, configDirectory: nil))
+        let connection = service(probe: 2)
+        let operation = Task { try await connection.logout() }
+        defer { operation.cancel() }
+        try await waitForFile(gate)
+        let replacementProfile = StandMixerClaudeInvocation(executable: cli, home: boundHome, configDirectory: "/changed-profile")
+        try storeInvocation(replacementProfile)
+        try Data().write(to: release)
+        do { _ = try await operation.value; XCTFail("Expected changed-profile rejection before logout") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("selected Claude profile changed")) }
+        XCTAssertEqual(try recordedCalls().map { $0.split(separator: "|")[1] }, ["--version"])
+        let kept = try JSONDecoder().decode(StandMixerClaudeInvocation.self, from: Data(contentsOf: preferenceURL))
+        XCTAssertEqual(kept, replacementProfile)
+    }
+
+    func testLogoutCLIRequiresExplicitConfirmationBeforeAnyCommand() async throws {
+        try fakeCLI(status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+        let service = integration()
+        let confirmation = await StandMixerCommandInterface.run(arguments: ["logout-claude"], service: service)
+        XCTAssertEqual(confirmation.exitCode, 0)
+        XCTAssertTrue(confirmation.text.contains("Other Claude Code sessions sharing that profile"))
+        XCTAssertTrue(confirmation.text.contains("standmixer logout-claude --yes"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: calls.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: support.path))
+        for tail in [["--yes", "--yes"], ["--yes", "--config", "/wrong-profile"], ["--force"]] {
+            let invalid = await StandMixerCommandInterface.run(arguments: ["logout-claude"] + tail, service: service)
+            XCTAssertEqual(invalid.exitCode, 2)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: calls.path))
+        let completed = await StandMixerCommandInterface.run(arguments: ["logout-claude", "--yes"], service: service)
+        XCTAssertEqual(completed.exitCode, 0)
+        let result = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(completed.text.utf8)) as? [String: Any])
+        XCTAssertEqual(result["state"] as? String, StandMixerClaudeConnectionState.signInRequired.rawValue)
+        XCTAssertEqual(try recordedCalls().map { $0.split(separator: "|")[1] }, ["--version", "auth logout", "auth status --json"])
     }
 
     func testBrokenOrSignedOutPreferredCopyFallsBackToWorkingKnownCLI() async throws {
@@ -364,10 +584,15 @@ final class ClaudeConnectionTests: XCTestCase {
     func testMissingAndMetadataModeDoNotLaunchCommands() async throws {
         let missing = try await service().check()
         XCTAssertEqual(missing.state, .missing)
+        let missingLogout = try await service().logout()
+        XCTAssertEqual(missingLogout.state, .missing)
         try fakeCLI(status: emit(connected))
         let fixture = StandMixerClaudeConnectionService(service: integration(metadata: true))
         let report = try await fixture.connect()
         XCTAssertEqual(report.state, .unavailable)
+        let logout = try await fixture.logout()
+        XCTAssertEqual(logout.state, .unavailable)
+        XCTAssertTrue(logout.detail.contains("fixture mode"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: calls.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: support.path))
     }
@@ -508,6 +733,70 @@ final class ClaudeConnectionTests: XCTestCase {
         catch { XCTAssertTrue(error is CancellationError) }
         try await assertHeartbeatStopped(heartbeat)
         XCTAssertFalse(FileManager.default.fileExists(atPath: support.appendingPathComponent("claude-connection.json").path))
+    }
+
+    func testCancellationReapsOwnedLogoutGroupAndReleasesSharedMutationGuard() async throws {
+        let heartbeat = root.appendingPathComponent("logout-heartbeat")
+        try fakeCLI(status: emit(#"{"loggedIn":false}"#, exit: 1), logout: heartbeatChild(heartbeat) + "wait\n")
+        let connection = service()
+        let operation = Task { try await connection.logout() }
+        defer { operation.cancel() }
+        try await waitForFile(heartbeat)
+        let blockedLogin = try await connection.connect()
+        let blockedLogout = try await connection.logout()
+        for report in [blockedLogin, blockedLogout] {
+            XCTAssertEqual(report.state, .unavailable)
+            XCTAssertTrue(report.detail.contains("already in progress"))
+        }
+        XCTAssertEqual(try recordedCalls().map { $0.split(separator: "|")[1] }, ["--version", "auth logout"])
+        operation.cancel()
+        do { _ = try await operation.value; XCTFail("Expected logout cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        try await assertHeartbeatStopped(heartbeat)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: preferenceURL.path))
+        XCTAssertFalse(try recordedCalls().contains { $0.contains("|auth login|") || $0.contains("|auth status --json|") })
+
+        try fakeCLI(status: emit(#"{"loggedIn":false}"#, exit: 1), logout: "exit 0\n")
+        let completed = try await connection.logout()
+        XCTAssertEqual(completed.state, .signInRequired)
+    }
+
+    func testLoginInProgressBlocksLogoutBeforeAnyLogoutCommand() async throws {
+        let heartbeat = root.appendingPathComponent("guard-login-heartbeat")
+        try fakeCLI(status: emit(#"{"loggedIn":false}"#, exit: 1), login: heartbeatChild(heartbeat) + "wait\n", logout: "exit 0\n")
+        let connection = service()
+        let operation = Task { try await connection.connect() }
+        defer { operation.cancel() }
+        try await waitForFile(heartbeat)
+        let report = try await connection.logout()
+        XCTAssertEqual(report.state, .unavailable)
+        XCTAssertTrue(report.detail.contains("already in progress"))
+        XCTAssertFalse(try recordedCalls().contains { $0.contains("|auth logout|") })
+        operation.cancel()
+        do { _ = try await operation.value; XCTFail("Expected login cancellation") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        try await assertHeartbeatStopped(heartbeat)
+    }
+
+    func testLogoutAndPostcheckTimeoutsAreUnknownAndStopOwnedGroups() async throws {
+        let logoutHeartbeat = root.appendingPathComponent("logout-timeout-heartbeat")
+        try fakeCLI(status: emit(#"{"loggedIn":false}"#, exit: 1), logout: heartbeatChild(logoutHeartbeat) + "wait\n")
+        let timedOut = try await service(logout: 0.5, probe: 2).logout()
+        XCTAssertEqual(timedOut.state, .unavailable)
+        XCTAssertTrue(timedOut.detail.contains("time limit"))
+        XCTAssertTrue(timedOut.detail.contains("Sign-in status is unknown"))
+        XCTAssertFalse(try recordedCalls().contains { $0.contains("|auth status --json|") || $0.contains("|auth login|") })
+        try await assertHeartbeatStopped(logoutHeartbeat)
+
+        try FileManager.default.removeItem(at: calls)
+        let postcheckHeartbeat = root.appendingPathComponent("logout-postcheck-heartbeat")
+        try fakeCLI(status: heartbeatChild(postcheckHeartbeat) + "wait\n", logout: "exit 0\n")
+        let unconfirmed = try await service(check: 2, probe: 1).logout()
+        XCTAssertEqual(unconfirmed.state, .unavailable)
+        XCTAssertTrue(unconfirmed.detail.contains("time limit"))
+        XCTAssertTrue(unconfirmed.detail.contains("Sign-in status is unknown"))
+        XCTAssertEqual(try recordedCalls().map { $0.split(separator: "|")[1] }, ["--version", "auth logout", "auth status --json"])
+        try await assertHeartbeatStopped(postcheckHeartbeat)
     }
 
     func testCancellationReapsOwnedStatusGroup() async throws {

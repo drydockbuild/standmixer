@@ -60,7 +60,7 @@ final class CategorySplitTests: XCTestCase {
             expected.category = route.category
             XCTAssertEqual(current.effectiveRoute(for: route.category), expected)
         }
-        XCTAssertEqual(current.route(for: .research)?.modelID, "gpt-6-astra")
+        XCTAssertEqual(current.route(for: .research)?.modelID, "gpt-6.2-astra")
         XCTAssertEqual(try JSONDecoder().decode(RoutingProfile.self, from: JSONEncoder().encode(current)), current)
     }
 
@@ -95,14 +95,17 @@ final class CategorySplitTests: XCTestCase {
               resultMode: .ai, judgeModelID: "claude-opus-5-5")
     }
 
-    private func legacyConfigurationData(explicitReview: Route? = nil, legacyLast: Bool = false) throws -> Data {
+    private func legacyConfigurationData(explicitReview: Route? = nil, legacyLast: Bool = false,
+                                         teamWorkerModelID: String = "gpt-6.1-sol") throws -> Data {
         var configuration = StandMixerConfiguration.defaults
         configuration.customModels = [.init(id: legacyTeam.modelID, label: "My algorithm model", platform: .claude)]
         configuration.enabledPlatforms = [.codex, .claude]
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(configuration)) as? [String: Any])
         var profiles = try XCTUnwrap(object["profiles"] as? [[String: Any]])
         let encoder = JSONEncoder()
-        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(legacyTeam)) as? [String: Any])
+        var team = legacyTeam
+        team.additionalAgents[0].modelID = teamWorkerModelID
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(team)) as? [String: Any])
         legacy["category"] = "algorithmReview"
         for index in profiles.indices {
             var rows = try XCTUnwrap(profiles[index]["routes"] as? [[String: Any]])
@@ -158,7 +161,8 @@ final class CategorySplitTests: XCTestCase {
         let id = UUID()
         let saved = try JSONSerialization.data(withJSONObject: [["id": id.uuidString, "name": "My preserved custom team", "configuration": configurationObject]])
         try saved.write(to: support.appendingPathComponent("presets.json"))
-        let expected = try JSONDecoder().decode(StandMixerConfiguration.self, from: data)
+        let expected = try JSONDecoder().decode(StandMixerConfiguration.self,
+            from: legacyConfigurationData(teamWorkerModelID: "gpt-6.2-sol"))
         XCTAssertEqual(try service.loadConfiguration(), expected)
         XCTAssertEqual(try service.loadPreviousDraft(), expected)
         let preset = try XCTUnwrap(service.loadSavedPresets().first)
@@ -230,9 +234,9 @@ final class CategorySplitTests: XCTestCase {
         let codexSkillPaths = Set(service.controlURLs(.codex).map(\.path))
         XCTAssertTrue(preview.changes.allSatisfy { $0.path.hasPrefix(service.codexHome.path + "/") || codexSkillPaths.contains($0.path) || $0.path == service.externalWorkerGuideURL(.codex).path })
         XCTAssertEqual(preview.changes.filter(\.isDeletion).count, legacyNames.count)
-        let algorithm = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("standmixer-gpt-6-astra-max.toml") })
+        let algorithm = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("standmixer-gpt-6.2-astra-max.toml") })
         let review = try XCTUnwrap(preview.changes.first { $0.path == service.externalWorkerGuideURL(.codex).path })
-        XCTAssertTrue(algorithm.after.contains("gpt-6-astra"))
+        XCTAssertTrue(algorithm.after.contains("gpt-6.2-astra"))
         XCTAssertNotEqual(algorithm.path, review.path, "Optimized Algorithms stays native; Security review uses Fable.")
         XCTAssertTrue(review.after.contains("claude-fable-5-2"))
         let instructions = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix("AGENTS.md") })

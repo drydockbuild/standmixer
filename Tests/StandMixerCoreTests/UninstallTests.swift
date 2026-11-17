@@ -104,7 +104,7 @@ final class UninstallTests: XCTestCase {
         try write(".codex/config.toml", "model = 'before'\nmodel_reasoning_effort = 'low'\n")
         try write(".claude/settings.json", "{\"model\":\"before\",\"modelSettings\":{\"claude-opus-5-5\":{\"effortLevel\":\"low\"}}}\n")
         _ = try service.apply(preview: service.preview(configuration: fixed("high")))
-        try write(".codex/config.toml", read(".codex/config.toml").replacingOccurrences(of: "'gpt-6.1-sol'", with: "'user-choice'"))
+        try write(".codex/config.toml", read(".codex/config.toml").replacingOccurrences(of: "'gpt-6.2-sol'", with: "'user-choice'"))
         let claude = try ConfigEdits.claudeSettings(read(".claude/settings.json"), model: "claude-opus-5-5", effort: "medium")
         try write(".claude/settings.json", claude)
         let skill = ".agents/skills/standmixer/SKILL.md"
@@ -146,7 +146,7 @@ final class UninstallTests: XCTestCase {
         try write(skill, source + "\nChanged during review\n")
         XCTAssertThrowsError(try service.uninstall(preview: preview))
         XCTAssertTrue(try read(".codex/AGENTS.md").contains(ConfigEdits.begin))
-        XCTAssertTrue(try read(".codex/config.toml").contains("gpt-6.1-sol"))
+        XCTAssertTrue(try read(".codex/config.toml").contains("gpt-6.2-sol"))
         XCTAssertEqual(try read(skill), source + "\nChanged during review\n")
     }
 

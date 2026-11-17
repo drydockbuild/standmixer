@@ -28,8 +28,8 @@ final class TeamModeTests: XCTestCase {
     }
 
     func testLegacyMissingTeamModeRetainsIndependentManualSemanticsAndExplicitModesPersist() throws {
-        let explicit = Route(category: .planning, modelID: "gpt-6-astra", effort: .fixed("high"),
-            additionalAgents: [.init(modelID: "gpt-6.1-sol", effort: .auto)], resultMode: .user, teamMode: .leadReview)
+        let explicit = Route(category: .planning, modelID: "gpt-6.2-astra", effort: .fixed("high"),
+            additionalAgents: [.init(modelID: "gpt-6.2-sol", effort: .auto)], resultMode: .user, teamMode: .leadReview)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(explicit)) as? [String: Any])
         object.removeValue(forKey: "teamMode")
         let legacy = try JSONDecoder().decode(Route.self, from: JSONSerialization.data(withJSONObject: object))
@@ -47,14 +47,14 @@ final class TeamModeTests: XCTestCase {
 
     func testOptimizedPlanningAndAlgorithmsStageReviewAfterSubstantiveWorkWithoutLoweringEffort() throws {
         var configuration = StandMixerConfiguration.defaults
-        change(&configuration, .planning) { $0.additionalAgents = [.init(modelID: "gpt-6.1-sol"), .init(modelID: "gpt-6-luna")] }
+        change(&configuration, .planning) { $0.additionalAgents = [.init(modelID: "gpt-6.2-sol"), .init(modelID: "gpt-6-luna")] }
         change(&configuration, .algorithms) { $0.inheritsTeam = false; $0.additionalAgents = [.init(modelID: "claude-opus-5-5")] }
         let exported = try policy(configuration)
         let planning = try block(.planning, in: exported)
         XCTAssertTrue(planning.contains("first worker creates the substantive plan; then the remaining 2 workers give quick focused review of that plan"))
         XCTAssertTrue(planning.contains("not independent replacement plans"))
         let algorithms = try block(.algorithms, in: exported)
-        XCTAssertTrue(algorithms.contains("1. Astra 6"))
+        XCTAssertTrue(algorithms.contains("1. Astra 6.2"))
         XCTAssertTrue(algorithms.contains("2. Opus 5.5 via Claude Code"))
         XCTAssertTrue(algorithms.contains("first worker does the substantive work; then the remaining worker gives quick focused review"))
         XCTAssertTrue(algorithms.contains("not full duplicate solves"))
@@ -103,7 +103,7 @@ final class TeamModeTests: XCTestCase {
             change(&configuration, category) {
                 $0.inheritsTeam = false
                 $0.teamMode = .parallel
-                $0.additionalAgents = [.init(modelID: "gpt-6.1-sol")]
+                $0.additionalAgents = [.init(modelID: "gpt-6.2-sol")]
             }
         }
         let exported = try policy(configuration)
@@ -118,8 +118,8 @@ final class TeamModeTests: XCTestCase {
         XCTAssertFalse(exported.contains("Do not add unconfigured critics, consensus votes, or review loops"))
         XCTAssertTrue(try block(.ui, in: exported).contains("selected design's model"))
         var configuredJudge = StandMixerConfiguration.defaults
-        change(&configuredJudge, .algorithms) { $0.inheritsTeam = false; $0.additionalAgents = [.init(modelID: "claude-opus-5-5")]; $0.resultMode = .ai; $0.judgeModelID = "gpt-6.1-sol" }
-        XCTAssertTrue(try policy(configuredJudge).contains("launch a fresh `standmixer-gpt-6.1-sol-auto` instance with a compare-only brief"))
+        change(&configuredJudge, .algorithms) { $0.inheritsTeam = false; $0.additionalAgents = [.init(modelID: "claude-opus-5-5")]; $0.resultMode = .ai; $0.judgeModelID = "gpt-6.2-sol" }
+        XCTAssertTrue(try policy(configuredJudge).contains("launch a fresh `standmixer-gpt-6.2-sol-auto` instance with a compare-only brief"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.home.path))
     }
 }

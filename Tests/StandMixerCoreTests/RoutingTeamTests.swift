@@ -41,16 +41,16 @@ final class RoutingTeamTests: XCTestCase {
         let ui = try XCTUnwrap(configuration.profiles[profile].routes.firstIndex { $0.category == .ui })
         configuration.profiles[profile].routes[ui].teamMode = .parallel
         configuration.profiles[profile].routes[ui].additionalAgents = [
-            .init(modelID: "gpt-6.1-sol", effort: .fixed("ultra")),
+            .init(modelID: "gpt-6.2-sol", effort: .fixed("ultra")),
             .init(modelID: "claude-opus-5-5", effort: .fixed("xhigh")),
-            .init(modelID: "gpt-6-astra", effort: .fixed("high"))
+            .init(modelID: "gpt-6.2-astra", effort: .fixed("high"))
         ]
         configuration.profiles[profile].routes[ui].resultMode = .ai
         configuration.profiles[profile].routes[ui].judgeModelID = "claude-opus-5-5"
         let preview = try service.preview(configuration: configuration, platforms: [.codex])
         let workerFiles = preview.changes.filter { $0.path.contains("/agents/") }
         XCTAssertEqual(workerFiles.count, 7, "Inherited roles share definitions; explicit fixed overrides use their own definitions.")
-        XCTAssertTrue(workerFiles.contains { $0.path.hasSuffix("standmixer-gpt-6.1-sol-ultra.toml") && $0.after.contains("ultra") })
+        XCTAssertTrue(workerFiles.contains { $0.path.hasSuffix("standmixer-gpt-6.2-sol-ultra.toml") && $0.after.contains("ultra") })
         XCTAssertFalse(workerFiles.contains { $0.path.hasSuffix("standmixer-claude-opus-5-5-xhigh.toml") })
         let guide = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(".agents/skills/standmixer/references/external-workers.md") })
         XCTAssertTrue(guide.after.contains("--effort 'xhigh'"))
@@ -68,7 +68,7 @@ final class RoutingTeamTests: XCTestCase {
 
     func testWorkerLimitAndForeignCoordinatorAreRejected() throws {
         var configuration = StandMixerConfiguration.defaults
-        configuration.profiles[0].routes[0].additionalAgents = [.init(modelID: "gpt-6.1-sol")]
+        configuration.profiles[0].routes[0].additionalAgents = [.init(modelID: "gpt-6.2-sol")]
         XCTAssertThrowsError(try service.preview(configuration: configuration, platforms: [.codex]))
         configuration = .defaults
         configuration.profiles[0].routes[0].modelID = "claude-opus-5-5"
@@ -81,7 +81,7 @@ final class RoutingTeamTests: XCTestCase {
             var configuration = StandMixerConfiguration.defaults
             let profile = try XCTUnwrap(configuration.profiles.firstIndex { $0.platform == platform })
             let visual = try XCTUnwrap(configuration.profiles[profile].routes.firstIndex { $0.category == .ui })
-            configuration.profiles[profile].routes[visual].additionalAgents = [.init(modelID: "gpt-6.1-sol")]
+            configuration.profiles[profile].routes[visual].additionalAgents = [.init(modelID: "gpt-6.2-sol")]
             let preview = try service.preview(configuration: configuration, platforms: [platform])
             let policy = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(platform == .codex ? "/AGENTS.md" : "/CLAUDE.md") }).after
             XCTAssertTrue(policy.contains("initial substantial visual design"))

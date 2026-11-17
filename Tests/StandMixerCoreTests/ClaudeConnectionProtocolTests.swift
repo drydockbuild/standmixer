@@ -3,7 +3,7 @@ import XCTest
 @testable import StandMixerCore
 
 final class ClaudeConnectionProtocolTests: XCTestCase {
-    private enum Call: Sendable { case check, connect, cancelled }
+    private enum Call: Sendable { case check, connect, logout, cancelled }
 
     private actor Calls {
         private(set) var values: [Call] = []
@@ -33,12 +33,12 @@ final class ClaudeConnectionProtocolTests: XCTestCase {
         try FileManager.default.removeItem(at: root)
     }
 
-    func testDisabledTransportRejectsBothActionsBeforeCallingEitherHandler() async throws {
+    func testDisabledTransportRejectsConnectionActionsBeforeCallingAnyHandler() async throws {
         let calls = Calls()
         let api = interface(calls: calls, allowsClaudeConnection: false)
         let state = try await send(.init(action: .state), to: api)
         XCTAssertFalse(try XCTUnwrap(state.state).canConnectClaude)
-        for action in [StandMixerModRequest.Action.checkClaudeConnection, .connectClaude] {
+        for action in [StandMixerModRequest.Action.checkClaudeConnection, .connectClaude, .logoutClaude] {
             let response = try await send(.init(action: action), to: api, exitCode: 1)
             XCTAssertEqual(response.error?.code, "connectionUnavailable", action.rawValue)
             XCTAssertNil(response.claudeConnection)
@@ -55,6 +55,11 @@ final class ClaudeConnectionProtocolTests: XCTestCase {
         let response = try await send(.init(action: .state), to: api)
         XCTAssertFalse(try XCTUnwrap(response.state).canConnectClaude)
         XCTAssertNil(response.claudeConnection)
+        for action in [StandMixerModRequest.Action.checkClaudeConnection, .connectClaude, .logoutClaude] {
+            let rejected = try await send(.init(action: action), to: api, exitCode: 1)
+            XCTAssertEqual(rejected.error?.code, "connectionUnavailable")
+            XCTAssertNil(rejected.claudeConnection)
+        }
         let recorded = await calls.values
         XCTAssertTrue(recorded.isEmpty)
     }
@@ -104,6 +109,16 @@ final class ClaudeConnectionProtocolTests: XCTestCase {
         XCTAssertNil(connected.state)
         let afterConnect = await calls.values
         XCTAssertEqual(afterConnect, [.check, .connect])
+
+        let loggedOut = try await send(.init(action: .logoutClaude), to: api)
+        let logoutReport = try XCTUnwrap(loggedOut.claudeConnection)
+        XCTAssertEqual(logoutReport.state, .signInRequired)
+        XCTAssertEqual(logoutReport.detail, "Fixture signed out.")
+        XCTAssertEqual(logoutReport.cliPath, "/fixture/claude")
+        XCTAssertEqual(logoutReport.checkedAt, checkedAt)
+        XCTAssertNil(loggedOut.state)
+        let afterLogout = await calls.values
+        XCTAssertEqual(afterLogout, [.check, .connect, .logout])
     }
 
     func testConnectionActionsRejectExtraRequestFieldsBeforeInvokingHandlers() async throws {
@@ -113,7 +128,7 @@ final class ClaudeConnectionProtocolTests: XCTestCase {
             "path": "/fixture/claude", "command": "auth login", "arguments": ["--console"],
             "configuration": NSNull(), "platforms": ["claude"], "unknown": NSNull()
         ]
-        for action in [StandMixerModRequest.Action.checkClaudeConnection, .connectClaude] {
+        for action in [StandMixerModRequest.Action.checkClaudeConnection, .connectClaude, .logoutClaude] {
             for (key, value) in fields {
                 let request = try JSONSerialization.data(withJSONObject: ["action": action.rawValue, key: value])
                 let execution = await api.runJSON(request)
@@ -152,6 +167,32 @@ final class ClaudeConnectionProtocolTests: XCTestCase {
         XCTAssertEqual(recorded, [.connect, .cancelled])
     }
 
+    func testCancellingLogoutCancelsAnInFlightLogoutHandler() async throws {
+        let calls = Calls()
+        let started = expectation(description: "Logout started")
+        let api = interface(calls: calls, logout: {
+            await calls.record(.logout)
+            started.fulfill()
+            do {
+                try await Task.sleep(for: .seconds(5))
+                return .init(state: .unavailable, detail: "Logout reached its deadline.")
+            } catch is CancellationError {
+                await calls.record(.cancelled)
+                throw CancellationError()
+            }
+        })
+        let request = try JSONEncoder().encode(StandMixerModRequest(action: .logoutClaude))
+        let operation = Task { await api.runJSON(request) }
+        await fulfillment(of: [started], timeout: 3)
+        operation.cancel()
+
+        let response = try decode(await operation.value, exitCode: 1)
+        XCTAssertEqual(response.error?.code, "cancelled")
+        XCTAssertNil(response.claudeConnection)
+        let recorded = await calls.values
+        XCTAssertEqual(recorded, [.logout, .cancelled])
+    }
+
     func testLegacyInspectionAndAccountActionsRemainRetiredWhenConnectionIsEnabled() async throws {
         let calls = Calls()
         let api = interface(calls: calls)
@@ -187,7 +228,8 @@ final class ClaudeConnectionProtocolTests: XCTestCase {
     }
 
     private func interface(calls: Calls, allowsClaudeConnection: Bool = true, metadataOnlyDiscovery: Bool = false,
-                           connector: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil) -> StandMixerModInterface {
+                           connector: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil,
+                           logout: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil) -> StandMixerModInterface {
         let discovery = CLIDiscovery(home: home, environment: [:], applicationDirectories: [], commonDirectories: [],
                                      activeExecutables: { [] })
         let service = IntegrationService(discovery: discovery, applicationSupport: support, metadataOnlyDiscovery: metadataOnlyDiscovery)
@@ -202,6 +244,11 @@ final class ClaudeConnectionProtocolTests: XCTestCase {
             claudeConnector: connector ?? { [checkedAt] in
                 await calls.record(.connect)
                 return .init(state: .connected, detail: "Fixture connected.", cliPath: "/fixture/claude",
+                             checkedAt: checkedAt)
+            },
+            claudeLogout: logout ?? { [checkedAt] in
+                await calls.record(.logout)
+                return .init(state: .signInRequired, detail: "Fixture signed out.", cliPath: "/fixture/claude",
                              checkedAt: checkedAt)
             })
     }

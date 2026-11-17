@@ -15,17 +15,32 @@ public enum StandMixerCommandInterface {
                            availablePlatforms: Set<AgentPlatform>? = nil) async -> StandMixerCommandResponse {
         let verb = arguments.first ?? "status"
         let tail = Array(arguments.dropFirst())
-        if ["check-claude", "connect-claude"].contains(verb.lowercased()) {
-            guard tail.isEmpty else { return .init("Use standmixer \(verb) without additional arguments.", exitCode: 2) }
+        if ["check-claude", "connect-claude", "logout-claude"].contains(verb.lowercased()) {
+            let logout = verb.lowercased() == "logout-claude"
+            if logout {
+                guard tail.isEmpty || tail == ["--yes"] else {
+                    return .init("Use standmixer logout-claude, or add --yes to confirm logout.", exitCode: 2)
+                }
+                guard tail == ["--yes"] else {
+                    return .init("Sign out of the Claude Code profile used by StandMixer for Codex. Other Claude Code sessions sharing that profile may need to sign in again. StandMixer keeps the profile for reconnecting with another account.\nTo sign out: standmixer logout-claude --yes")
+                }
+            } else {
+                guard tail.isEmpty else { return .init("Use standmixer \(verb) without additional arguments.", exitCode: 2) }
+            }
             do {
                 let connection = StandMixerClaudeConnectionService(service: service)
                 let report: StandMixerClaudeConnectionReport
-                if verb.lowercased() == "connect-claude" { report = try await connection.connect() }
+                if logout { report = try await connection.logout() }
+                else if verb.lowercased() == "connect-claude" { report = try await connection.connect() }
                 else { report = try await connection.check() }
                 let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601; encoder.outputFormatting = [.sortedKeys]
-                return .init(String(decoding: try encoder.encode(report), as: UTF8.self), exitCode: report.state == .connected ? 0 : 1)
+                let succeeded = logout ? report.state == .signInRequired : report.state == .connected
+                return .init(String(decoding: try encoder.encode(report), as: UTF8.self), exitCode: succeeded ? 0 : 1)
             } catch is CancellationError { return .init("Claude connection cancelled.", exitCode: 130) }
-            catch { return .init("Claude connection could not be checked. Open Connect Claude for Codex in StandMixer.", exitCode: 1) }
+            catch {
+                if logout { return .init("Claude logout could not complete. Sign-in status is unknown. Recheck the connection in StandMixer.", exitCode: 1) }
+                return .init("Claude connection could not be checked. Open Connect Claude for Codex in StandMixer.", exitCode: 1)
+            }
         }
         if verb.lowercased() == "resolve-cli" {
             guard tail.count == 1, let platform = AgentPlatform(rawValue: tail[0]) else {
@@ -93,6 +108,7 @@ public enum StandMixerCommandInterface {
       resolve-cli <claude|codex>  Print the freshly verified CLI path; no inference.
       check-claude            Check the Claude connection used by Codex; no model call.
       connect-claude          Connect Claude for Codex through the official browser login.
+      logout-claude           Preview signing out of the shared Claude Code profile; add --yes.
       run-claude -- -p ...    Launch an explicit Claude worker with that same connection.
       fast | optimized | high  Preview a preset; add --yes to apply it.
       settings               Open settings in the invoking harness.

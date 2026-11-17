@@ -60,7 +60,7 @@ def main():
         properties = action_tool["inputSchema"]["properties"]
         assert set(properties["action"]["enum"]) == {"state", "saveDraft", "savePreset", "deletePreset", "preview",
                                                     "apply", "previewUninstall", "uninstall", "previewRestore", "restore",
-                                                    "installMac", "openWeb", "openMac", "checkUpdates", "checkClaudeConnection", "connectClaude"}
+                                                    "installMac", "openWeb", "openMac", "checkUpdates", "checkClaudeConnection", "connectClaude", "logoutClaude"}
         assert set(properties) == {"action", "configuration", "platforms", "previewID", "presetID", "name", "refresh"}
         assert responses[3]["result"]["contents"][0]["mimeType"] == "text/html;profile=mcp-app"
         assert responses[3]["result"]["contents"][0]["uri"] == resource_uri
@@ -127,7 +127,7 @@ def main():
             for retired in ("inspect", "checkAccounts"):
                 assert action(retired, okay=False)["error"]["code"] == "retiredAction"
             assert state_response["state"]["canConnectClaude"] is False
-            for connection_action in ("checkClaudeConnection", "connectClaude"):
+            for connection_action in ("checkClaudeConnection", "connectClaude", "logoutClaude"):
                 assert action(connection_action, okay=False)["error"]["code"] == "connectionUnavailable"
             assert not marker.exists(), "Browser transport launched a connection command"
             codex = home / ".codex/config.toml"

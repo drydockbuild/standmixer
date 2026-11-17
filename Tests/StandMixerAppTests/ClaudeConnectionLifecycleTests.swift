@@ -111,7 +111,7 @@ final class ClaudeConnectionLifecycleTests: XCTestCase {
         _ = try installResistantLogin(in: root)
         store.selectedPlatform = .claude
         store.beginEditing()
-        store.setModel("gpt-6-astra", for: .planning)
+        store.setModel("gpt-6.2-astra", for: .planning)
         XCTAssertTrue(store.saveEditing())
         XCTAssertFalse(store.hasPendingClaudeConnectionCleanup)
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("calls").path))

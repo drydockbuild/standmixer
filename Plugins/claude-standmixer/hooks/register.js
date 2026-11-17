@@ -1,7 +1,7 @@
 // Native Claude Code mod. No Node, web view, prompt submission, or model calls.
 // All settings, preset recipes, provider validation, and writes belong to the helper.
 const PANE = 'standmixer';
-const PANE_VERSION = '0.2.6';
+const PANE_VERSION = '0.2.8';
 const OPENED = 'settings-opened-v1';
 const CONTROLLER_AUTO = 'Auto keeps the current native model and effort. Saved defaults stay unchanged. A pinned model applies to new sessions; this chat keeps its current model.';
 const isAutoController = route => route?.category === 'coordinator' && route.modelID === 'auto';
@@ -418,7 +418,7 @@ function renderRouteEditor($,elements,platform,task){
   const {Box,Text,Button,Select}=elements,redraw=()=>$.ui.invalidate('ui.render'),route=routeFor(platform,task),resolved=effectiveFor(platform,task),key=platform+'-'+task,parent=!!PARENTS[task];
   const baseline=routeIn(view.editSnapshot?.draft,platform,task),isEdited=!!baseline&&routeKey(baseline)!==routeKey(route);
   const select=(suffix,label,value,options,update)=>Select({key:key+'-'+suffix,label:PLATFORM_NAMES[platform]+' '+taskLabel(task)+' '+label,value,options,onSelect:value=>{if(view.busy)return;update(value);edited();redraw();}});
-  const options=values=>values.map(value=>({value,label:title(value)})),models=catalog().filter(model=>view.state.availablePlatforms.includes(model.platform)&&view.platforms.includes(model.platform)&&(task!=='coordinator'||model.platform===platform));
+  const options=values=>values.map(value=>({value,label:title(value)})),models=catalog().filter(model=>!['gpt-6.1-sol','gpt-6-astra'].includes(model.id)&&view.state.availablePlatforms.includes(model.platform)&&view.platforms.includes(model.platform)&&(task!=='coordinator'||model.platform===platform));
   const availableOptions=id=>{const values=[...(task==='coordinator'?[{value:'auto',label:'Auto · Current model'}]:[]),...models.map(model=>({value:model.id,label:model.label+(model.platform!==platform?' · '+PLATFORM_NAMES[model.platform]:'' )}))];return values.some(option=>option.value===id)?values:[{value:id,label:(modelFor(id)?.label||id)+' · currently unavailable'},...values];};
   const children=isEdited?[Text({color:'#6fb3b8',bold:true,children:['Edited']})]:[];
   [resolved,...(route.inheritsTeam?[]:resolved.additionalAgents||[])].forEach((worker,index)=>{
@@ -444,7 +444,7 @@ function renderRouteEditor($,elements,platform,task){
 }
 
 function renderEscalationEditor($,elements,platform,task){
-  const {Box,Text,Button,Select}=elements,route=routeFor(platform,task),workers=route.stuckEscalation||[],key=platform+'-'+task+'-stuck',redraw=()=>$.ui.invalidate('ui.render'),models=catalog().filter(model=>view.platforms.includes(model.platform)&&view.state.availablePlatforms.includes(model.platform));
+  const {Box,Text,Button,Select}=elements,route=routeFor(platform,task),workers=route.stuckEscalation||[],key=platform+'-'+task+'-stuck',redraw=()=>$.ui.invalidate('ui.render'),models=catalog().filter(model=>!['gpt-6.1-sol','gpt-6-astra'].includes(model.id)&&view.platforms.includes(model.platform)&&view.state.availablePlatforms.includes(model.platform));
   const changed=()=>{edited();redraw();},select=(index,field,label,value,options,update)=>Select({key:key+'-'+index+'-'+field,label:PLATFORM_NAMES[platform]+' '+taskLabel(task)+' When stuck '+(index+1)+' '+label,value,options,onSelect:value=>{if(view.busy)return;if(update(value)===false)return;changed();}}),options=levels=>levels.map(value=>({value,label:title(value)}));
   const children=[Text({bold:true,children:['When stuck']}),Text({dimColor:true,wrap:'wrap',children:['Try these models in order after a failed approach. Models already tried are skipped.']})];
   workers.forEach((worker,index)=>{const levels=modelFor(worker.modelID)?.supportedEfforts||LEVELS,effort=worker.effort||autoEffort(),modelOptions=models.map(model=>({value:model.id,label:model.label+(model.platform!==platform?' · '+PLATFORM_NAMES[model.platform]:'' )}));if(!modelOptions.some(option=>option.value===worker.modelID))modelOptions.unshift({value:worker.modelID,label:(modelFor(worker.modelID)?.label||worker.modelID)+' · currently unavailable'});
@@ -537,6 +537,7 @@ function renderCustomModels($, elements) {
     const id = view.customID.trim(), label = view.customLabel.trim();
     if (id === 'auto') { view.error = 'Auto is reserved for the Controller setting.'; redraw(); return; }
     if (!id || !label || !view.customEfforts.length) { view.error = 'Enter a model ID, label, and at least one supported effort.'; redraw(); return; }
+    if (['gpt-6.1-sol','gpt-6-astra'].includes(id)) { view.error = 'Use Sol 6.2 or Astra 6.2 for these model families.'; redraw(); return; }
     if (catalog().some(model => model.id === id)) { view.error = 'This model ID is already in the catalog.'; redraw(); return; }
     if (/[\r\n\0]/.test(id + label)) { view.error = 'Model IDs and labels must be a single line.'; redraw(); return; }
     view.draft.customModels.push({ id, label, platform: view.customPlatform, supportedEfforts: LEVELS.filter(level => view.customEfforts.includes(level)), isDiscovered: false });

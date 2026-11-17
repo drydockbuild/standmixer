@@ -17,12 +17,12 @@ final class RouteInheritanceTests: XCTestCase {
         var configuration = StandMixerConfiguration.defaults
         let assistant = AgentAssignment(modelID: "gpt-6-luna", effort: .fixed("high"))
         edit(.ui, in: &configuration) {
-            $0.modelID = "gpt-6.1-sol"
+            $0.modelID = "gpt-6.2-sol"
             $0.effort = .fixed("xhigh")
             $0.additionalAgents = [assistant]
             $0.teamMode = .parallel
             $0.resultMode = .ai
-            $0.judgeModelID = "gpt-6-astra"
+            $0.judgeModelID = "gpt-6.2-astra"
         }
         edit(.uiImplementation, in: &configuration) {
             $0.inheritsEffort = false
@@ -30,21 +30,21 @@ final class RouteInheritanceTests: XCTestCase {
         }
         edit(.uiReview, in: &configuration) {
             $0.inheritsModel = false
-            $0.modelID = "gpt-6-astra"
+            $0.modelID = "gpt-6.2-astra"
             $0.inheritsTeam = false
             $0.teamMode = .leadReview
             $0.resultMode = .user
         }
         let profile = try XCTUnwrap(configuration.profile(for: .codex))
         let build = try XCTUnwrap(profile.effectiveRoute(for: .uiImplementation))
-        XCTAssertEqual(build.modelID, "gpt-6.1-sol")
+        XCTAssertEqual(build.modelID, "gpt-6.2-sol")
         XCTAssertEqual(build.effort, .fixed("medium"))
         XCTAssertEqual(build.additionalAgents, [assistant])
         XCTAssertEqual(build.teamMode, .parallel)
         XCTAssertEqual(build.resultMode, .ai)
-        XCTAssertEqual(build.judgeModelID, "gpt-6-astra")
+        XCTAssertEqual(build.judgeModelID, "gpt-6.2-astra")
         let review = try XCTUnwrap(profile.effectiveRoute(for: .uiReview))
-        XCTAssertEqual(review.modelID, "gpt-6-astra")
+        XCTAssertEqual(review.modelID, "gpt-6.2-astra")
         XCTAssertEqual(review.effort, .fixed("xhigh"))
         XCTAssertEqual(review.additionalAgents, [])
         XCTAssertEqual(review.teamMode, .leadReview)
@@ -65,7 +65,7 @@ final class RouteInheritanceTests: XCTestCase {
         XCTAssertEqual(changed.effectiveRoute(for: .uiImplementation)?.modelID, "gpt-6-luna")
         XCTAssertEqual(changed.effectiveRoute(for: .uiImplementation)?.effort, .fixed("medium"))
         XCTAssertEqual(changed.effectiveRoute(for: .uiImplementation)?.additionalAgents, [])
-        XCTAssertEqual(changed.effectiveRoute(for: .uiReview)?.modelID, "gpt-6-astra")
+        XCTAssertEqual(changed.effectiveRoute(for: .uiReview)?.modelID, "gpt-6.2-astra")
         XCTAssertEqual(changed.effectiveRoute(for: .uiReview)?.effort, .fixed("high"))
     }
 
@@ -82,7 +82,7 @@ final class RouteInheritanceTests: XCTestCase {
         XCTAssertEqual(StandMixerCommandInterface.matchingPreset(configuration, platforms: [.codex, .claude]), .optimized)
         XCTAssertNoThrow(try service.preview(configuration: configuration))
         var explicitlyPinned = configuration
-        edit(.uiImplementation, in: &explicitlyPinned) { $0.inheritsModel = false; $0.modelID = "gpt-6-astra" }
+        edit(.uiImplementation, in: &explicitlyPinned) { $0.inheritsModel = false; $0.modelID = "gpt-6.2-astra" }
         XCTAssertNil(StandMixerCommandInterface.matchingPreset(explicitlyPinned, platforms: [.codex, .claude]))
         var invalidParent = configuration
         edit(.ui, in: &invalidParent) { $0.inheritsEffort = true }
@@ -107,7 +107,7 @@ final class RouteInheritanceTests: XCTestCase {
         let service = fixtureService()
         var configuration = StandMixerConfiguration.defaults
         edit(.ui, in: &configuration) {
-            $0.modelID = "gpt-6.1-sol"
+            $0.modelID = "gpt-6.2-sol"
             $0.effort = .fixed("high")
         }
         edit(.uiImplementation, in: &configuration) { $0.effort = .fixed("medium"); $0.inheritsEffort = false }
@@ -122,17 +122,17 @@ final class RouteInheritanceTests: XCTestCase {
                          "repeat the full review when the scope or exposure changes materially"] {
             XCTAssertTrue(policy.contains(guidance), guidance)
         }
-        XCTAssertTrue(policy.contains("- UI implementation: Implementing visual and interaction changes. Sol 6.1, medium, `standmixer-gpt-6.1-sol-medium`"))
-        XCTAssertTrue(policy.contains("- UI review: Reviewing or judging visual and interaction quality. Sol 6.1, high, `standmixer-gpt-6.1-sol-high`"))
-        XCTAssertTrue(policy.contains("- Debugging / root cause: Diagnosing failures, tracing causes, and investigating uncertain behavior. Astra 6, max"))
-        XCTAssertTrue(preview.changes.contains { $0.path.hasSuffix("standmixer-gpt-6.1-sol-medium.toml") && $0.after.contains("model_reasoning_effort = \"medium\"") })
+        XCTAssertTrue(policy.contains("- UI implementation: Implementing visual and interaction changes. Sol 6.2, medium, `standmixer-gpt-6.2-sol-medium`"))
+        XCTAssertTrue(policy.contains("- UI review: Reviewing or judging visual and interaction quality. Sol 6.2, high, `standmixer-gpt-6.2-sol-high`"))
+        XCTAssertTrue(policy.contains("- Debugging / root cause: Diagnosing failures, tracing causes, and investigating uncertain behavior. Astra 6.2, max"))
+        XCTAssertTrue(preview.changes.contains { $0.path.hasSuffix("standmixer-gpt-6.2-sol-medium.toml") && $0.after.contains("model_reasoning_effort = \"medium\"") })
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.home.path))
     }
 
     func testDebuggingEscalationExportsOrderedConditionalHandoffsAndValidatesEveryTarget() throws {
         let service = fixtureService()
         var configuration = StandMixerConfiguration.defaults
-        let expected = ["claude-fable-5-2", "gpt-6-astra", "claude-opus-5-5"]
+        let expected = ["claude-fable-5-2", "gpt-6.2-astra", "claude-opus-5-5"]
         for profile in configuration.profiles {
             let debugging = try XCTUnwrap(profile.effectiveRoute(for: .debugging))
             XCTAssertEqual(debugging.stuckEscalation.map(\.modelID), expected)
@@ -146,7 +146,7 @@ final class RouteInheritanceTests: XCTestCase {
         for platform in AgentPlatform.allCases {
             let instructions = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(platform == .codex ? "/AGENTS.md" : "/CLAUDE.md") }).after
             let chain = try XCTUnwrap(instructions.split(separator: "\n").first { $0.contains("When debugging is stuck, try in order:") })
-            let names = ["1. Fable 5.2", "2. Astra 6", "3. Opus 5.5"]
+            let names = ["1. Fable 5.2", "2. Astra 6.2", "3. Opus 5.5"]
             let positions = try names.map { try XCTUnwrap(chain.range(of: $0)?.lowerBound) }
             XCTAssertEqual(positions, positions.sorted())
             XCTAssertTrue(instructions.contains("Two failed diagnostic cycles can be a signal"))

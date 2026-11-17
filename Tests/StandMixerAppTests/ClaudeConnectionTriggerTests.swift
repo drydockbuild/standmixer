@@ -5,7 +5,7 @@ import StandMixerCore
 final class ClaudeConnectionTriggerTests: XCTestCase {
     private func configuration() -> StandMixerConfiguration {
         .init(profiles: [
-            .init(platform: .codex, routes: [.init(category: .planning, modelID: "gpt-6-astra")]),
+            .init(platform: .codex, routes: [.init(category: .planning, modelID: "gpt-6.2-astra")]),
             .init(platform: .claude, routes: [.init(category: .planning, modelID: "claude-opus-5-5")])
         ], enabledPlatforms: [.codex, .claude])
     }
@@ -30,7 +30,7 @@ final class ClaudeConnectionTriggerTests: XCTestCase {
     func testReverseNativeAndUnknownChangesDoNotTrigger() {
         let before = configuration()
         var after = before
-        after.profiles[1].routes[0].modelID = "gpt-6-astra"
+        after.profiles[1].routes[0].modelID = "gpt-6.2-astra"
         XCTAssertFalse(ClaudeConnectionTrigger.introducesClaude(before: before, after: after, catalog: ModelSpec.builtIn))
         after.profiles[0].routes[0].modelID = "claude-looking-unknown"
         XCTAssertFalse(ClaudeConnectionTrigger.introducesClaude(before: before, after: after, catalog: ModelSpec.builtIn))

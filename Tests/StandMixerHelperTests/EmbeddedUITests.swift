@@ -85,6 +85,7 @@ final class EmbeddedUITests: XCTestCase {
         XCTAssertFalse(actions.contains("checkAccounts"))
         XCTAssertTrue(actions.contains("checkClaudeConnection"))
         XCTAssertTrue(actions.contains("connectClaude"))
+        XCTAssertTrue(actions.contains("logoutClaude"))
         let listedResources = try await rpc("resources/list")
         let resources = try XCTUnwrap((listedResources["result"] as? [String: Any])?["resources"] as? [[String: Any]])
         XCTAssertEqual(resources.compactMap { $0["uri"] as? String }, [assets.resourceURI])
@@ -213,7 +214,7 @@ final class EmbeddedUITests: XCTestCase {
         var pinned = StandMixerConfiguration.defaults
         let codex = pinned.profiles.firstIndex { $0.platform == .codex }!
         let controller = pinned.profiles[codex].routes.firstIndex { $0.category == .coordinator }!
-        pinned.profiles[codex].routes[controller].modelID = "gpt-6.1-sol"
+        pinned.profiles[codex].routes[controller].modelID = "gpt-6.2-sol"
         let preview = await router.respond(try request(.init(action: .preview, configuration: pinned, platforms: [.codex, .claude])))
         let id = try XCTUnwrap(UUID(uuidString: try XCTUnwrap((try object(preview.body)["preview"] as? [String: Any])?["id"] as? String)))
         XCTAssertFalse(FileManager.default.fileExists(atPath: home.path))

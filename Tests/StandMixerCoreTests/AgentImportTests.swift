@@ -588,7 +588,7 @@ final class AgentImportTests: XCTestCase {
         XCTAssertEqual(reference.first { $0["label"] == "Opus 5.5" }?["modelID"], "claude-opus-5-5")
         XCTAssertEqual(reference.first { $0["label"] == "Fable 5.1" }?["modelID"], "claude-fable-5-1")
         XCTAssertEqual(reference.first { $0["label"] == "Haiku 5.5" }?["modelID"], "claude-haiku-5-5")
-        XCTAssertEqual(reference.first { $0["label"] == "Sol 6.1" }?["modelID"], "gpt-6.1-sol")
+        XCTAssertEqual(reference.first { $0["label"] == "Sol 6.2" }?["modelID"], "gpt-6.2-sol")
         XCTAssertEqual(reference.first { $0["label"] == "Known Custom 2" }?["modelID"], "gpt-known-custom")
         XCTAssertTrue(reference.allSatisfy { Set($0.keys) == ["label", "modelID", "modelPlatform"] })
         XCTAssertTrue(brief.contains("Preserve exact saved current model IDs/aliases unchanged, including fable[1m]"))

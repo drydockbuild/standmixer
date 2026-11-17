@@ -6,7 +6,7 @@ import Foundation
 /// Requests never supply file paths, commands, or writable preview contents.
 public struct StandMixerModRequest: Codable, Sendable {
     public enum Action: String, Codable, Sendable {
-        case state, saveDraft, savePreset, deletePreset, preview, apply, previewUninstall, uninstall, previewRestore, restore, installMac, openWeb, openMac, checkUpdates, checkClaudeConnection, connectClaude
+        case state, saveDraft, savePreset, deletePreset, preview, apply, previewUninstall, uninstall, previewRestore, restore, installMac, openWeb, openMac, checkUpdates, checkClaudeConnection, connectClaude, logoutClaude
         /// Decode old panel requests only so callers receive an explicit retirement error.
         case inspect, checkAccounts
     }
@@ -181,6 +181,7 @@ public final class StandMixerModInterface: @unchecked Sendable {
     private let claudeConnection: StandMixerClaudeConnectionService
     private let claudeConnectionCheck: (@Sendable () async throws -> StandMixerClaudeConnectionReport)?
     private let claudeConnector: (@Sendable () async throws -> StandMixerClaudeConnectionReport)?
+    private let claudeLogout: (@Sendable () async throws -> StandMixerClaudeConnectionReport)?
     private let now: @Sendable () -> Date
     private var directory: URL { service.applicationSupport.appendingPathComponent("Previews", isDirectory: true) }
     private var configurationURL: URL { service.applicationSupport.appendingPathComponent("configuration.json") }
@@ -194,6 +195,7 @@ public final class StandMixerModInterface: @unchecked Sendable {
                 allowsClaudeConnection: Bool = false,
                 claudeConnectionCheck: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil,
                 claudeConnector: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil,
+                claudeLogout: (@Sendable () async throws -> StandMixerClaudeConnectionReport)? = nil,
                 now: @escaping @Sendable () -> Date = { Date() }) {
         self.service = service; fixtureConnections = connections
         self.macInstaller = macInstaller
@@ -202,6 +204,7 @@ public final class StandMixerModInterface: @unchecked Sendable {
         self.claudeConnection = StandMixerClaudeConnectionService(service: service)
         self.claudeConnectionCheck = claudeConnectionCheck
         self.claudeConnector = claudeConnector
+        self.claudeLogout = claudeLogout
         self.now = now
     }
 
@@ -217,7 +220,8 @@ public final class StandMixerModInterface: @unchecked Sendable {
                let action = object["action"] as? String,
                [StandMixerModRequest.Action.installMac.rawValue, StandMixerModRequest.Action.openWeb.rawValue,
                 StandMixerModRequest.Action.openMac.rawValue, StandMixerModRequest.Action.checkAccounts.rawValue,
-                StandMixerModRequest.Action.checkClaudeConnection.rawValue, StandMixerModRequest.Action.connectClaude.rawValue].contains(action),
+                StandMixerModRequest.Action.checkClaudeConnection.rawValue, StandMixerModRequest.Action.connectClaude.rawValue,
+                StandMixerModRequest.Action.logoutClaude.rawValue].contains(action),
                Set(object.keys) != ["action"] {
                 throw ProtocolError("invalidRequest", "\(action) takes no fields other than action. Paths and commands are not accepted.")
             }
@@ -268,17 +272,20 @@ public final class StandMixerModInterface: @unchecked Sendable {
 
     private func execute(_ request: StandMixerModRequest) async throws -> StandMixerModResponse {
         switch request.action {
-        case .checkClaudeConnection, .connectClaude:
-            guard allowsClaudeConnection else {
-                throw ProtocolError("connectionUnavailable", "Connect Claude from the native Codex panel or StandMixer Mac app. Settings remain available without connecting.")
+        case .checkClaudeConnection, .connectClaude, .logoutClaude:
+            guard allowsClaudeConnection && !service.metadataOnlyDiscovery else {
+                throw ProtocolError("connectionUnavailable", "Manage the Claude connection from the native Codex panel or StandMixer Mac app. Settings remain available without connecting.")
             }
             let result: StandMixerClaudeConnectionReport
             if request.action == .checkClaudeConnection {
                 if let claudeConnectionCheck { result = try await claudeConnectionCheck() }
                 else { result = try await claudeConnection.check() }
-            } else {
+            } else if request.action == .connectClaude {
                 if let claudeConnector { result = try await claudeConnector() }
                 else { result = try await claudeConnection.connect() }
+            } else {
+                if let claudeLogout { result = try await claudeLogout() }
+                else { result = try await claudeConnection.logout() }
             }
             try Task.checkCancellation()
             return .init(ok: true, claudeConnection: result)
@@ -390,7 +397,8 @@ public final class StandMixerModInterface: @unchecked Sendable {
                     }
                     applied = try service.apply(preview: stored.integrationPreview)
                     if let configuration = stored.configuration {
-                        do { try saveEditableDraft(configuration) }
+                        // A previously reviewed plan may still use a superseded model.
+                        do { try saveEditableDraft(configuration.updatingLegacyCodexModels()) }
                         catch { notes.append("The routing was applied, but the editable draft could not be saved. Check StandMixer's file permissions.") }
                     }
                 } else if request.action == .uninstall {

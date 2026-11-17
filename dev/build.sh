@@ -59,8 +59,8 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
   <key>CFBundleName</key><string>StandMixer</string>
   <key>CFBundleDisplayName</key><string>StandMixer</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.2.6</string>
-  <key>CFBundleVersion</key><string>20</string>
+  <key>CFBundleShortVersionString</key><string>0.2.8</string>
+  <key>CFBundleVersion</key><string>22</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

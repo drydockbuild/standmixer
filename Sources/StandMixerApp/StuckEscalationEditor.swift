@@ -8,7 +8,7 @@ struct StuckEscalationEditor: View {
     let category: WorkCategory
     private var route: Route { store.route(category, in: platform) }
     private var available: [ModelSpec] {
-        store.availableModels.filter { model in
+        store.selectableModels.filter { model in
             store.modelPlatforms.contains(model.platform)
                 && !route.stuckEscalation.contains { $0.modelID == model.id }
         }

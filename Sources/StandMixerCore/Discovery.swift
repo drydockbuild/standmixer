@@ -34,12 +34,16 @@ extension IntegrationService {
               let data = try? Data(contentsOf: path),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let models = root["models"] as? [[String: Any]] else { return [] }
+        let knownLabels = [
+            "gpt-6.2-sol": "Sol 6.2", "gpt-6.2-astra": "Astra 6.2",
+            "gpt-6.1-sol": "Sol 6.1", "gpt-6-astra": "Astra 6",
+            "gpt-6-luna": "Luna 6", "gpt-6.1-terra": "Terra 6.1",
+        ]
         return models.compactMap { item in
             guard let id = item["slug"] as? String, !id.isEmpty,
                   item["visibility"] as? String != "hide" else { return nil }
-            let labels: [String: String] = ["gpt-6.1-sol": "Sol 6.1", "gpt-6-astra": "Astra 6", "gpt-6-luna": "Luna 6", "gpt-6.1-terra": "Terra 6.1"]
             let levels = (item["supported_reasoning_levels"] as? [[String: Any]] ?? []).compactMap { $0["effort"] as? String }
-            return ModelSpec(id: id, label: labels[id] ?? item["display_name"] as? String ?? id, platform: .codex,
+            return ModelSpec(id: id, label: knownLabels[id] ?? item["display_name"] as? String ?? id, platform: .codex,
                              supportedEfforts: levels.isEmpty ? EffortPolicy.levels : levels, isDiscovered: true,
                              defaultEffort: item["default_reasoning_level"] as? String)
         }

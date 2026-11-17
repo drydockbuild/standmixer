@@ -23,7 +23,7 @@ final class ApprovedPresetMatrixTests: XCTestCase {
     // Independent fixtures in visible category order, including fixed child
     // efforts and the ordered Codex security team.
     private func expectedTeams(_ preset: StandMixerPreset, _ platform: AgentPlatform) -> [[Worker]] {
-        let astra = "gpt-6-astra", sol = "gpt-6.1-sol", luna = "gpt-6-luna"
+        let astra = "gpt-6.2-astra", sol = "gpt-6.2-sol", luna = "gpt-6-luna"
         let fable = "claude-fable-5-2", opus = "claude-opus-5-5", haiku = "claude-haiku-5-5"
         let controller = [Worker("auto", "auto")]
         let planning: Worker
@@ -70,8 +70,8 @@ final class ApprovedPresetMatrixTests: XCTestCase {
     }
 
     private let models: [String: (label: String, provider: AgentPlatform)] = [
-        "gpt-6-astra": ("Astra 6", .codex),
-        "gpt-6.1-sol": ("Sol 6.1", .codex),
+        "gpt-6.2-astra": ("Astra 6.2", .codex),
+        "gpt-6.2-sol": ("Sol 6.2", .codex),
         "gpt-6.1-terra": ("Terra 6.1", .codex),
         "gpt-6-luna": ("Luna 6", .codex),
         "claude-opus-5-5": ("Opus 5.5", .claude),
@@ -146,26 +146,26 @@ final class ApprovedPresetMatrixTests: XCTestCase {
                         XCTAssertEqual(route.effort.mode, .fixed)
                         if !route.additionalAgents.isEmpty {
                             XCTAssertEqual(preset, .high)
-                            XCTAssertEqual(route.additionalAgents.map(\.modelID), [platform == .codex ? "gpt-6.1-sol" : "claude-opus-5-5"])
+                            XCTAssertEqual(route.additionalAgents.map(\.modelID), [platform == .codex ? "gpt-6.2-sol" : "claude-opus-5-5"])
                             XCTAssertEqual(route.additionalAgents.map(\.effort), [.fixed("max")])
                         }
                         XCTAssertEqual(route.resultMode, .coordinator)
                         XCTAssertNil(route.judgeModelID)
                     }
                     let routineCoding = try XCTUnwrap(profile.effectiveRoute(for: .routineCoding))
-                    XCTAssertEqual(routineCoding.modelID, platform == .codex ? "gpt-6.1-sol" : "claude-opus-5-5")
+                    XCTAssertEqual(routineCoding.modelID, platform == .codex ? "gpt-6.2-sol" : "claude-opus-5-5")
                     XCTAssertEqual(routineCoding.effort, .fixed("max"))
                     let planning = try XCTUnwrap(profile.effectiveRoute(for: .planning))
                     XCTAssertEqual(planning.additionalAgents.count, preset == .high ? 1 : 0)
                     let security = try XCTUnwrap(profile.effectiveRoute(for: .securityReview))
                     XCTAssertTrue(security.additionalAgents.isEmpty)
-                    let reviewer = platform == .codex ? "gpt-6-astra" : "claude-fable-5-2"
+                    let reviewer = platform == .codex ? "gpt-6.2-astra" : "claude-fable-5-2"
                     XCTAssertEqual(security.modelID, reviewer)
                     XCTAssertEqual(security.effort, .fixed("max"))
                     let debugging = try XCTUnwrap(profile.effectiveRoute(for: .debugging))
                     XCTAssertTrue(debugging.additionalAgents.isEmpty)
                     XCTAssertEqual(debugging.stuckEscalation.map(\.modelID),
-                                   platform == .codex ? ["gpt-6-astra"] : ["claude-fable-5-2", "claude-opus-5-5"])
+                                   platform == .codex ? ["gpt-6.2-astra"] : ["claude-fable-5-2", "claude-opus-5-5"])
                     XCTAssertTrue(debugging.stuckEscalation.allSatisfy { $0.effort == .fixed("max") })
                     let coordinator = try XCTUnwrap(profile.route(for: .coordinator))
                     XCTAssertTrue(coordinator.additionalAgents.isEmpty)
@@ -221,7 +221,7 @@ final class ApprovedPresetMatrixTests: XCTestCase {
                         }
                         XCTAssertFalse(block.contains("compare-only"))
                     }
-                    let escalation = [Worker("claude-fable-5-2", "max"), Worker("gpt-6-astra", "max"), Worker("claude-opus-5-5", "max")]
+                    let escalation = [Worker("claude-fable-5-2", "max"), Worker("gpt-6.2-astra", "max"), Worker("claude-opus-5-5", "max")]
                     let expectedWorkers = Set((teams.dropFirst().flatMap { $0 } + escalation).filter { models[$0.id]?.provider == platform }.map { "standmixer-\($0.id)-\($0.effort)." + (platform == .codex ? "toml" : "md") })
                     let actualWorkers = preview.changes.filter { $0.path.hasPrefix(root.appendingPathComponent("agents").path + "/") }
                     XCTAssertEqual(Set(actualWorkers.map { URL(fileURLWithPath: $0.path).lastPathComponent }), expectedWorkers)

@@ -81,7 +81,7 @@ status: published 0.1.8 on 2026-11-10 (33b5e67) · started: 2026-11-10 · branch
 - [x] Verify and install the display update locally without modifying any assignments (~7m). · took: ~5m
 
 ## 0.2
-status: 0.2.6 published and installed locally; live website and previews updated and verified · started: 2026-11-14 · branch: website/0.2.6-refresh · revision: website-026-1 · Mac build: 20 · took: ~15m
+status: 0.2.8 build 22 verified locally; publication approved and in progress · started: 2026-11-17 · branch: release/0.2.8 · revision: release-028-1 · Mac build: 22
 
 - [x] Add six routing groups, independently inherited overrides, and migration that preserves existing assignments (~25m, Sol 6.1). · took: ~25m
 - [x] Add the agreed Optimized defaults and deliberate Fast and High-quality presets (~10m, Sol 6.1). · took: ~20m
@@ -93,6 +93,13 @@ status: 0.2.6 published and installed locally; live website and previews updated
 This batch selects models, effort, and explicit teams. Permissions remain with the host and project. Quota monitoring, automatic fallback, model-specific permission bans, and project-specific mandatory review rules are outside StandMixer's scope. The previously recorded ideas below are not part of this local build.
 
 ### Now
+
+- [ ] Check the installed logout confirmation (~1m).
+  Group: Claude account control
+  Why: The Mac was locked during the final visual check; automated logout and cancellation tests passed.
+  Do: Reopen StandMixer or open it in a fresh Codex chat, then choose Sources, Connect Claude for Codex, Log out…, and Cancel.
+  Expect: Version 0.2.7 is shown, the confirmation explains the shared CLI profile, and Cancel keeps the connection unchanged.
+  Valid-for: local-027-1
 
 - [ ] Load the updated settings panel (~1m).
   Group: Local 0.2.6 check
@@ -116,6 +123,14 @@ This batch selects models, effort, and explicit teams. Permissions remain with t
   Valid-for: local-021-1
 
 ### Found while working
+
+- [ ] Publish 0.2.8 source, tag, and plugin packages after final release checks (~10m, Astra 6.2 + Fable 5.2). · started: 2026-11-17 · branch: release/0.2.8
+
+- [x] Replace prior Sol/Astra assignments with Sol 6.2 and Astra 6.2, preserve other routing choices, and install/apply the local update (~20m, Sol 6.2 + Astra 6.2). · started: 2026-11-17 · branch: v0.2.8-models-6.2 · took: ~20m
+  Updated catalog, factory presets, model pickers, labels, generated selectors, and editable saved choices. Exact reviewed previews and applied/restore records keep historical IDs. Verified 118 Codex UI tests, 61 Claude panel tests, 61 native App/Helper tests, Core migration/category/preset coverage (one stale fixture corrected and rerun), packaged-helper safeguards, native Codex loading, universal helper build, and installed Mac signature. Applied the reviewed 11-file update; all 20 Sol/Astra references changed exactly as requested, with no other configuration differences. Native controller defaults and Claude connection metadata were preserved. No inference smoke, GitHub publication, or website deployment was part of this batch.
+
+- [x] Add explicit Claude CLI logout in Codex and Mac connection controls, verify profile/cancellation behavior, and install locally (~40m, Sol 6.1 + Astra 6). · started: 2026-11-16 · branch: v0.2.7-claude-logout · took: ~40m
+  Passed 386 Swift tests (one expected platform skip), 117 Codex UI tests, 61 Claude panel tests, native Codex loading, packaged-helper protections, and MCP/HTTP boundary checks. Logout tests use isolated fake CLIs; no real logout or login ran. Review fixed false logout confirmation for expired sessions, rejected redirected saved executables, and resolved a reproduced first-publication race by staging complete connection records before rename. The strict concurrent-link check passed 10 repeated runs and independent staged-write stress passed 5,000 cycles. Installed both plugins/helper and Mac build 21; signatures and installed helper hashes verified. Routing/native settings and connection metadata stayed unchanged; only normal installation/recovery receipts changed. Live visual verification was blocked by the locked Mac.
 
 - [x] Refresh the live website for 0.2.6 with the current interface capture and link-preview artwork (~15m, Astra 6). · started: 2026-11-14 · branch: website/0.2.6-refresh · took: ~15m
   Published the current-version link, released Codex UI capture using isolated factory data, and 1200×630 share-preview artwork with new asset URLs. Verified desktop/mobile layout, loaded images, release link, social metadata, and exact live HTML/image bytes at https://standmixer.dev/. The static release was switched atomically with its prior release retained; runtime settings and release artifacts were unchanged.

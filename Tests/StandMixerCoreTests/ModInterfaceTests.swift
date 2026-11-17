@@ -154,6 +154,31 @@ final class ModInterfaceTests: XCTestCase {
         XCTAssertEqual(current.installation.state, .applied)
     }
 
+    func testPreviouslyReviewedModelStaysAppliedWhileTheDraftUpgrades() async throws {
+        let oldID = "gpt-6.1-sol"
+        let cachePath = ".codex/models_cache.json"
+        try write(cachePath, #"{"models":[{"slug":"gpt-6.1-sol"}]}"#)
+        let legacy = pinnedControllers(.preset(.optimized, availablePlatforms: [.codex]), codex: oldID, effort: .fixed("high"))
+        let reviewed = try await send(.init(action: .preview, configuration: legacy, platforms: [.codex]))
+        XCTAssertEqual(reviewed.0.exitCode, 0, String(decoding: reviewed.0.output, as: UTF8.self))
+        let preview = try XCTUnwrap(reviewed.1["preview"] as? [String: Any])
+        try FileManager.default.removeItem(at: service.home.appendingPathComponent(cachePath))
+
+        let applied = try await send(.init(action: .apply, previewID: id(preview)), to: interface(freshService()))
+        XCTAssertEqual(applied.0.exitCode, 0, String(decoding: applied.0.output, as: UTF8.self))
+        let result = try XCTUnwrap(applied.1["result"] as? [String: Any])
+        XCTAssertEqual(result["notes"] as? [String], [])
+        XCTAssertEqual(StandMixerModNativeSettings.capture(platform: .codex, service: service).modelID, oldID)
+        let installed = try service.installationStatus()
+        XCTAssertEqual(installed.state, .applied)
+        XCTAssertEqual(installed.appliedConfiguration?.profile(for: .codex), legacy.profile(for: .codex))
+
+        let draftURL = service.applicationSupport.appendingPathComponent("configuration.json")
+        let saved = try JSONDecoder().decode(StandMixerConfiguration.self, from: Data(contentsOf: draftURL))
+        XCTAssertEqual(saved.profile(for: .codex)?.route(for: .coordinator)?.modelID, "gpt-6.2-sol")
+        XCTAssertEqual(saved.profile(for: .codex)?.route(for: .coordinator)?.effort, .fixed("high"))
+    }
+
     func testCustomNativeIdentityDefaultsAndInvalidDraftsCannotBypassCanonicalCatalog() async throws {
         let minimal = Data("{\"id\":\"my-claude-alias\",\"label\":\"Custom Claude\",\"platform\":\"claude\"}".utf8)
         let custom = try JSONDecoder().decode(ModelSpec.self, from: minimal)
@@ -168,8 +193,8 @@ final class ModInterfaceTests: XCTestCase {
         XCTAssertEqual(saved.0.exitCode, 0, String(decoding: saved.0.output, as: UTF8.self))
         XCTAssertEqual(try state(saved.1).catalog.first { $0.id == custom.id }?.platform, .claude)
         let persisted = try service.loadConfiguration()
-        draft.customModels = [.init(id: "gpt-6.1-sol", label: "Pretend native Claude", platform: .claude)]
-        draft.profiles[profile].routes[coordinator].modelID = "gpt-6.1-sol"
+        draft.customModels = [.init(id: "gpt-6.2-sol", label: "Pretend native Claude", platform: .claude)]
+        draft.profiles[profile].routes[coordinator].modelID = "gpt-6.2-sol"
         for action in [StandMixerModRequest.Action.saveDraft, .savePreset, .preview] {
             let rejected = try await send(.init(action: action, configuration: draft, platforms: [.claude], name: action == .savePreset ? "Invalid" : nil))
             XCTAssertNotEqual(rejected.0.exitCode, 0)
@@ -344,16 +369,16 @@ final class ModInterfaceTests: XCTestCase {
         var recipe = StandMixerConfiguration.preset(.optimized, availablePlatforms: [.claude])
         let claude = try XCTUnwrap(recipe.profiles.firstIndex { $0.platform == .claude })
         let implementation = try XCTUnwrap(recipe.profiles[claude].routes.firstIndex { $0.category == .implementation })
-        recipe.profiles[claude].routes[implementation].modelID = "gpt-6.1-sol"
+        recipe.profiles[claude].routes[implementation].modelID = "gpt-6.2-sol"
         // Catalog identities remain authoritative even if a draft tries to
         // relabel a known Codex model as a Claude model.
-        recipe.customModels.append(.init(id: "gpt-6.1-sol", label: "Claimed native", platform: .claude))
+        recipe.customModels.append(.init(id: "gpt-6.2-sol", label: "Claimed native", platform: .claude))
         let disabled = try await send(.init(action: .preview, configuration: recipe, platforms: [.claude]))
         XCTAssertNotEqual(disabled.0.exitCode, 0)
         let error = try XCTUnwrap(disabled.1["error"] as? [String: Any])
         XCTAssertEqual(error["code"] as? String, "invalidConfiguration")
         XCTAssertTrue((error["message"] as? String)?.contains("Enable Codex") == true)
-        XCTAssertTrue((error["message"] as? String)?.contains("Sol 6.1") == true)
+        XCTAssertTrue((error["message"] as? String)?.contains("Sol 6.2") == true)
         XCTAssertFalse(FileManager.default.fileExists(atPath: service.applicationSupport.path))
         let enabled = try await send(.init(action: .preview, configuration: recipe, platforms: [.claude, .codex]))
         XCTAssertEqual(enabled.0.exitCode, 0, String(decoding: enabled.0.output, as: UTF8.self))
@@ -365,12 +390,12 @@ final class ModInterfaceTests: XCTestCase {
         var recipe = StandMixerConfiguration.preset(.optimized, availablePlatforms: [.claude])
         let claude = try XCTUnwrap(recipe.profiles.firstIndex { $0.platform == .claude })
         let implementation = try XCTUnwrap(recipe.profiles[claude].routes.firstIndex { $0.category == .implementation })
-        recipe.profiles[claude].routes[implementation].additionalAgents = [.init(modelID: "gpt-6.1-sol")]
+        recipe.profiles[claude].routes[implementation].additionalAgents = [.init(modelID: "gpt-6.2-sol")]
         let worker = try await send(.init(action: .preview, configuration: recipe, platforms: [.claude]))
         XCTAssertNotEqual(worker.0.exitCode, 0)
         recipe.profiles[claude].routes[implementation].additionalAgents = [.init(modelID: "claude-haiku-5-5")]
         recipe.profiles[claude].routes[implementation].resultMode = .ai
-        recipe.profiles[claude].routes[implementation].judgeModelID = "gpt-6.1-sol"
+        recipe.profiles[claude].routes[implementation].judgeModelID = "gpt-6.2-sol"
         let judge = try await send(.init(action: .preview, configuration: recipe, platforms: [.claude]))
         XCTAssertNotEqual(judge.0.exitCode, 0)
         XCTAssertTrue(((judge.1["error"] as? [String: Any])?["message"] as? String)?.contains("Enable Codex") == true)
@@ -414,7 +439,7 @@ final class ModInterfaceTests: XCTestCase {
         try write(".codex/config.toml", original)
         for preset in [StandMixerPreset.fast, .high] {
             let configuration = pinnedControllers(.preset(preset, availablePlatforms: [.codex, .claude]),
-                                                  codex: preset == .fast ? "gpt-6-luna" : "gpt-6-astra",
+                                                  codex: preset == .fast ? "gpt-6-luna" : "gpt-6.2-astra",
                                                   claude: preset == .fast ? "claude-haiku-5-5" : "claude-opus-5-5")
             let planned = try await send(.init(action: .preview, configuration: configuration, platforms: [.codex, .claude]))
             let plan = try XCTUnwrap(planned.1["preview"] as? [String: Any])
@@ -423,7 +448,7 @@ final class ModInterfaceTests: XCTestCase {
         }
         let plan = try await send(.init(action: .previewUninstall))
         let uninstall = try XCTUnwrap(plan.1["preview"] as? [String: Any])
-        XCTAssertTrue(try read(".codex/config.toml").contains("gpt-6-astra"))
+        XCTAssertTrue(try read(".codex/config.toml").contains("gpt-6.2-astra"))
         let result = try await send(.init(action: .uninstall, previewID: id(uninstall)), to: interface(freshService()))
         XCTAssertEqual(result.0.exitCode, 0, String(decoding: result.0.output, as: UTF8.self))
         let restored = try read(".codex/config.toml")

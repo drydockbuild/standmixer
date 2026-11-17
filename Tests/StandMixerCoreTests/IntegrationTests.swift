@@ -85,7 +85,7 @@ final class IntegrationTests: XCTestCase {
     }
 
     func testStaleUnchangedTargetRefusesOtherPreviewWrites() throws {
-        let configURL = try write(".codex/config.toml", "model = \"gpt-6.1-sol\"\n")
+        let configURL = try write(".codex/config.toml", "model = \"gpt-6.2-sol\"\n")
         let preview = try service.preview(configuration: pinnedControllers())
         let config = try XCTUnwrap(preview.changes.first { $0.path == configURL.path })
         XCTAssertFalse(config.isChanged)
@@ -147,7 +147,7 @@ final class IntegrationTests: XCTestCase {
         XCTAssertTrue(codexUI.after.contains("--model"))
         let claudeReview = try XCTUnwrap(preview.changes.first { $0.path.hasSuffix(".claude/skills/standmixer/references/external-workers.md") })
         XCTAssertFalse(claudeReview.after.contains("model: claude-haiku-5-5"))
-        XCTAssertTrue(claudeReview.after.contains("gpt-6.1-sol"))
+        XCTAssertTrue(claudeReview.after.contains("gpt-6.2-sol"))
     }
 
     func testBothRoutingProfilesAreRequired() {
