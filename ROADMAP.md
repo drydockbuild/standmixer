@@ -81,7 +81,7 @@ status: published 0.1.8 on 2026-11-10 (33b5e67) · started: 2026-11-10 · branch
 - [x] Verify and install the display update locally without modifying any assignments (~7m). · took: ~5m
 
 ## 0.2
-status: 0.2.8 build 22 verified locally; publication approved and in progress · started: 2026-11-17 · branch: release/0.2.8 · revision: release-028-1 · Mac build: 22
+status: 0.2.8 build 22 published and locally installed; release assets verified · started: 2026-11-17 · branch: publish/0.2.8 · revision: release-028-1 · Mac build: 22 · took: ~12m
 
 - [x] Add six routing groups, independently inherited overrides, and migration that preserves existing assignments (~25m, Sol 6.1). · took: ~25m
 - [x] Add the agreed Optimized defaults and deliberate Fast and High-quality presets (~10m, Sol 6.1). · took: ~20m
@@ -124,7 +124,8 @@ This batch selects models, effort, and explicit teams. Permissions remain with t
 
 ### Found while working
 
-- [ ] Publish 0.2.8 source, tag, and plugin packages after final release checks (~10m, Astra 6.2 + Fable 5.2). · started: 2026-11-17 · branch: release/0.2.8
+- [x] Publish 0.2.8 source, tag, and plugin packages after final release checks (~12m, Astra 6.2 + Fable 5.2). · started: 2026-11-17 · branch: publish/0.2.8 · took: ~12m
+  Published release commit 3495c54 and v0.2.8 with both plugin ZIPs and SHA256SUMS. Independent native and Fable 5.2 reviews found no blockers. Final Swift suite passed 392 tests with one expected skip. Installer fixtures passed 44 on the first run; the remaining fixture hit its 30-second subprocess deadline and passed unchanged in an isolated rerun. Downloaded release assets match their original checksums, plugin versions, and strict code signatures; GitHub marks v0.2.8 latest. Existing local build 22 and the applied 6.2 routing remain current. No live website deployment was part of this publication batch.
 
 - [x] Replace prior Sol/Astra assignments with Sol 6.2 and Astra 6.2, preserve other routing choices, and install/apply the local update (~20m, Sol 6.2 + Astra 6.2). · started: 2026-11-17 · branch: v0.2.8-models-6.2 · took: ~20m
   Updated catalog, factory presets, model pickers, labels, generated selectors, and editable saved choices. Exact reviewed previews and applied/restore records keep historical IDs. Verified 118 Codex UI tests, 61 Claude panel tests, 61 native App/Helper tests, Core migration/category/preset coverage (one stale fixture corrected and rerun), packaged-helper safeguards, native Codex loading, universal helper build, and installed Mac signature. Applied the reviewed 11-file update; all 20 Sol/Astra references changed exactly as requested, with no other configuration differences. Native controller defaults and Claude connection metadata were preserved. No inference smoke, GitHub publication, or website deployment was part of this batch.
