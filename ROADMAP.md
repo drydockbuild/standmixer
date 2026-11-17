@@ -81,7 +81,7 @@ status: published 0.1.8 on 2026-11-10 (33b5e67) · started: 2026-11-10 · branch
 - [x] Verify and install the display update locally without modifying any assignments (~7m). · took: ~5m
 
 ## 0.2
-status: 0.2.8 published and installed; matching website refresh in progress · started: 2026-11-17 · branch: website/0.2.8-refresh · revision: website-028-1 · Mac build: 22
+status: 0.2.8 published and installed; website and 6.2 previews deployed and verified · started: 2026-11-17 · branch: website/0.2.8-refresh · revision: website-028-1 · Mac build: 22 · took: ~8m
 
 - [x] Add six routing groups, independently inherited overrides, and migration that preserves existing assignments (~25m, Sol 6.1). · took: ~25m
 - [x] Add the agreed Optimized defaults and deliberate Fast and High-quality presets (~10m, Sol 6.1). · took: ~20m
@@ -124,7 +124,8 @@ This batch selects models, effort, and explicit teams. Permissions remain with t
 
 ### Found while working
 
-- [ ] Update the live website version, settings screenshot, and share preview for 0.2.8 and the 6.2 models (~8m, Astra 6.2). · started: 2026-11-17 · branch: website/0.2.8-refresh
+- [x] Update the live website version, settings screenshot, and share preview for 0.2.8 and the 6.2 models (~8m, Astra 6.2). · started: 2026-11-17 · branch: website/0.2.8-refresh · took: ~8m
+  Published source 5ee6b8d and switched the static release atomically. Verified the v0.2.8 release link, current UI screenshot, Sol/Astra 6.2 share card, 1200×630 image size, desktop/mobile layout, image loading, social metadata, and exact live HTML/image bytes. Browser cache was cleared by a normal reload during final verification; the previous static release is retained for rollback. No application settings changed.
 
 - [x] Publish 0.2.8 source, tag, and plugin packages after final release checks (~12m, Astra 6.2 + Fable 5.2). · started: 2026-11-17 · branch: publish/0.2.8 · took: ~12m
   Published release commit 3495c54 and v0.2.8 with both plugin ZIPs and SHA256SUMS. Independent native and Fable 5.2 reviews found no blockers. Final Swift suite passed 392 tests with one expected skip. Installer fixtures passed 44 on the first run; the remaining fixture hit its 30-second subprocess deadline and passed unchanged in an isolated rerun. Downloaded release assets match their original checksums, plugin versions, and strict code signatures; GitHub marks v0.2.8 latest. Existing local build 22 and the applied 6.2 routing remain current. No live website deployment was part of this publication batch.
